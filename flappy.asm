@@ -3,15 +3,23 @@
 	include vcs.h
 	include macro.h
 
-	; programme constants
+	; program constants
+
+; how often (in frames) each vblank kernel should run
+VBLANK_CYCLE_COUNT	EQU		$3
+
+; screen boundries for bird sprite
 BIRD_POS_HIGH			EQU		$BF
 BIRD_POS_LOW			EQU		$9
+
+; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_UP_FRAMES			EQU		$5
 FLY_GLIDE_FRAMES	EQU		FLY_UP_FRAMES + $3
-CLIMB_RATE				EQU		$4
-FALL_RATE_LOW			EQU		$1
-FRAME_CYCLE_COUNT	EQU		$3
 
+; number of pixels bird sprite should fly up per frame
+CLIMB_RATE				EQU		$4
+
+FALL_RATE_INIT		EQU		$1
 BIRD_POS_INIT			EQU		$BF
 FLY_ANIM_INIT			EQU		$0
 
@@ -21,9 +29,9 @@ NUM_SCANLINES			EQU		192
 	; data  - variables
 	SEG.U RAM 
 	ORG $80
-FRAME_CYCLE					ds 1
+VBLANK_CYCLE				ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
-BIRD_POS						ds 1
+BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; fly direction -> 0 = dive, 0..FLY_UP_FRAMES = climb, FLY_UP_FRAMES..FLY_GLIDE_FRAMES = glide
 FALL_RATE						ds 1
 
@@ -51,11 +59,11 @@ setup
 	LDA #FLY_ANIM_INIT
 	STA FLY_FRAME
 
-	LDA #FALL_RATE_LOW
+	LDA #FALL_RATE_INIT
 	STA FALL_RATE
 
-	LDA #FRAME_CYCLE_COUNT
-	STA FRAME_CYCLE
+	LDA #VBLANK_CYCLE_COUNT
+	STA VBLANK_CYCLE
 
 	; set background colour
 	LDA #BACKGROUND_COLOR
@@ -93,17 +101,17 @@ vertical_loop
 ; VBLANK KERNEL
 
 	; frame triage
-	LDY FRAME_CYCLE
+	LDY VBLANK_CYCLE
 	DEY
 	BEQ frame_player_sprite
-	STY FRAME_CYCLE
+	STY VBLANK_CYCLE
 	JMP end_frame_triage
 
 	; FRAME - PLAYER SPRITE
 frame_player_sprite
 	; reset frame cycle
-	LDY #FRAME_CYCLE_COUNT
-	STY FRAME_CYCLE
+	LDY #VBLANK_CYCLE_COUNT
+	STY VBLANK_CYCLE
 
 	; check fire button
 	LDA INPT4
@@ -171,7 +179,7 @@ glide_test
 end_glide
 	LDA #FLY_ANIM_INIT
 	STA FLY_FRAME
-	LDA #FALL_RATE_LOW
+	LDA #FALL_RATE_INIT
 	STA FALL_RATE
 
 fly_down
@@ -235,6 +243,8 @@ sprite_display_kernel_loop
 	STA WSYNC
 
 	; reset player sprite at beginning of scan line
+	; note we'that we don't need anything more sophisticated than
+	; this because the bird never moves horizontally
 	STA RESP0
 	; naive wait method (four cycles) for RESP0 to be acknowledged
 	; TODO: do something useful here that doesn't involve the player sprite
@@ -243,14 +253,14 @@ sprite_display_kernel_loop
 	NOP
 	NOP
 
-	; at the horizontal line where the bird is - turn on the sprite
+	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPY BIRD_POS
 	BEQ sprite_on
 
-	; check to see if we're still in the sprite's range
-	; move sprite line count to accumulator and branch accordingly
+	; the bird sprite is more than one scanline tall.  check to see if we're still in
+	; the sprite's range and move sprite line count to accumulator and branch accordingly
 	; NOTE: vblank kernel may leave junk in X register, which will cause odd sprite drawing
-	; if this is the case, change vblank kernel so that X is equal to #NUM_SCANLINES
+	; if so, vblank kernel should reset X to #NUM_SCANLINES
 	TXA
 	BMI sprite_off
 	JMP sprite_line	
