@@ -21,7 +21,7 @@ CLIMB_RATE				EQU		$4
 
 FALL_RATE_INIT		EQU		$1
 BIRD_POS_INIT			EQU		$BF
-FLY_ANIM_INIT			EQU		$0
+FLY_FRAME_INIT		EQU		$0
 
 BACKGROUND_COLOR	EQU		$85
 NUM_SCANLINES			EQU		192
@@ -34,14 +34,15 @@ FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negativ
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; fly direction: 0 = dive, <= FLY_UP_FRAMES = climb, <= FLY_GLIDE_FRAMES = glide
 FALL_RATE						ds 1
+FLAP_CYCLE					ds 1	; flips betwen 00000000 and 11111111
 
 	; sprite data
 	SEG
 	ORG $F000
-SPRITE_WINGS_UP			.byte	$7F,$72,$60,$40,$00
-SPRITE_WINGS_FLAT		.byte	$00,$7F,$62,$00,$00
-SPRITE_WINGS_DOWN		.byte	$40,$60,$70,$7F,$02
-SPRITE_LINES				.byte	$4
+SPRITE_WINGS_UP			.byte	$00,$00,$00,$7F,$72,$60,$40
+SPRITE_WINGS_FLAT		.byte	$00,$00,$00,$7F,$62,$00,$00
+SPRITE_WINGS_DOWN		.byte	$40,$60,$70,$7F,$02,$00,$00
+SPRITE_LINES				.byte	$6
 
 ; ----------------------------------
 ; SETUP
@@ -50,20 +51,23 @@ setup
 	CLEAN_START
 
 	; initialise variables
-	LDA #BIRD_POS_INIT
-	STA BIRD_POS
+	LDA #VBLANK_CYCLE_COUNT
+	STA VBLANK_CYCLE
 
 	LDA INPT4
 	STA FIRE_HELD
 
-	LDA #FLY_ANIM_INIT
+	LDA #BIRD_POS_INIT
+	STA BIRD_POS
+
+	LDA #FLY_FRAME_INIT
 	STA FLY_FRAME
 
 	LDA #FALL_RATE_INIT
 	STA FALL_RATE
 
-	LDA #VBLANK_CYCLE_COUNT
-	STA VBLANK_CYCLE
+	LDA #0
+	STA FLAP_CYCLE
 
 	; set background colour
 	LDA #BACKGROUND_COLOR
@@ -129,6 +133,12 @@ frame_player_sprite
 	; start new fly animation
 	LDA #1
 	STA FLY_FRAME
+
+	; flip flap cycle
+	LDA FLAP_CYCLE
+	EOR #255
+	STA FLAP_CYCLE
+
 	JMP do_anim
 
 joy_fire_off
@@ -177,7 +187,7 @@ glide_test
 	JMP fly_end
 
 end_glide
-	LDA #FLY_ANIM_INIT
+	LDA #FLY_FRAME_INIT
 	STA FLY_FRAME
 	LDA #FALL_RATE_INIT
 	STA FALL_RATE
@@ -272,7 +282,7 @@ sprite_on
 sprite_line
 	; is FLY_FRAME == 0
 	LDA FLY_FRAME
-	BEQ sprite_dive
+	BEQ sprite_wings_up
 
 	; is FLY_FRAME more than FLY_UP_FRAMES
 	CMP FLY_UP_FRAMES
@@ -280,11 +290,13 @@ sprite_line
 
 	; fall through to sprite_climb
 	
-sprite_climb
+sprite_flap
+	LDA FLAP_CYCLE
+	BNE sprite_wings_up
 	LDA SPRITE_WINGS_FLAT,X
 	JMP sprite_line_next
 
-sprite_dive
+sprite_wings_up
 	LDA SPRITE_WINGS_UP,X
 	JMP sprite_line_next
 
