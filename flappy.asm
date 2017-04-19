@@ -32,16 +32,16 @@ NUM_SCANLINES			EQU		192
 VBLANK_CYCLE				ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
-FLY_FRAME						ds 1	; fly direction -> 0 = dive, 0..FLY_UP_FRAMES = climb, FLY_UP_FRAMES..FLY_GLIDE_FRAMES = glide
+FLY_FRAME						ds 1	; fly direction: 0 = dive, <= FLY_UP_FRAMES = climb, <= FLY_GLIDE_FRAMES = glide
 FALL_RATE						ds 1
 
 	; sprite data
 	SEG
 	ORG $F000
-SPRITE_DIVE				.byte	$7F,$72,$60,$40,$00
-SPRITE_GLIDE			.byte	$00,$7F,$62,$00,$00
-SPRITE_CLIMB			.byte	$40,$60,$70,$7F,$02
-SPRITE_LINES			.byte	$4
+SPRITE_WINGS_UP			.byte	$7F,$72,$60,$40,$00
+SPRITE_WINGS_FLAT		.byte	$00,$7F,$62,$00,$00
+SPRITE_WINGS_DOWN		.byte	$40,$60,$70,$7F,$02
+SPRITE_LINES				.byte	$4
 
 ; ----------------------------------
 ; SETUP
@@ -100,7 +100,7 @@ vertical_loop
 ; ----------------------------------
 ; VBLANK KERNEL
 
-	; frame triage
+	; frame triage - cycle through vblank kernels every VBLANK_CYCLE frames
 	LDY VBLANK_CYCLE
 	DEY
 	BEQ frame_player_sprite
@@ -243,7 +243,7 @@ sprite_display_kernel_loop
 	STA WSYNC
 
 	; reset player sprite at beginning of scan line
-	; note we'that we don't need anything more sophisticated than
+	; note that we don't need anything more sophisticated than
 	; this because the bird never moves horizontally
 	STA RESP0
 	; naive wait method (four cycles) for RESP0 to be acknowledged
@@ -270,26 +270,29 @@ sprite_on
 	LDX	SPRITE_LINES
 
 sprite_line
+	; is FLY_FRAME == 0
 	LDA FLY_FRAME
 	BEQ sprite_dive
+
+	; is FLY_FRAME more than FLY_UP_FRAMES
 	CMP FLY_UP_FRAMES
 	BPL sprite_glide
+
+	; fall through to sprite_climb
 	
-	; sprite climb
-	LDA SPRITE_CLIMB,X
-	STA GRP0
+sprite_climb
+	LDA SPRITE_WINGS_FLAT,X
 	JMP sprite_line_next
 
 sprite_dive
-	LDA SPRITE_DIVE,X
-	STA GRP0
+	LDA SPRITE_WINGS_UP,X
 	JMP sprite_line_next
 
 sprite_glide
-	LDA SPRITE_GLIDE,X
-	STA GRP0
+	LDA SPRITE_WINGS_DOWN,X
 
 sprite_line_next
+	STA GRP0
 	DEX
 	JMP next_kernel_loop
 
