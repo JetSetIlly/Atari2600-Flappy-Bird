@@ -7,24 +7,27 @@
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT	EQU		$3
+VBLANK_CYCLE_SPRITE EQU		$1
+VBLANK_CYCLE_PFIELD	EQU		$2
+VBLANK_CYCLE_SPARE	EQU		$3
 
 ; screen boundries for bird sprite
-BIRD_POS_HIGH			EQU		$BF
-BIRD_POS_LOW			EQU		$9
+BIRD_POS_HIGH				EQU		$BF
+BIRD_POS_LOW				EQU		$9
 
 ; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_UP_FRAMES			EQU		$5
-FLY_GLIDE_FRAMES	EQU		FLY_UP_FRAMES + $3
+FLY_UP_FRAMES				EQU		$5
+FLY_GLIDE_FRAMES		EQU		FLY_UP_FRAMES + $3
 
 ; number of pixels bird sprite should fly up per frame
-CLIMB_RATE				EQU		$4
+CLIMB_RATE					EQU		$4
 
-FALL_RATE_INIT		EQU		$1
-BIRD_POS_INIT			EQU		$BF
-FLY_FRAME_INIT		EQU		$0
+FALL_RATE_INIT			EQU		$1
+BIRD_POS_INIT				EQU		$BF
+FLY_FRAME_INIT			EQU		$0
 
-BACKGROUND_COLOR	EQU		$85
-NUM_SCANLINES			EQU		192
+BACKGROUND_COLOR		EQU		$85
+NUM_SCANLINES				EQU		192
 
 	; data  - variables
 	SEG.U RAM 
@@ -69,6 +72,10 @@ setup
 	LDA #0
 	STA FLAP_CYCLE
 
+	; widen player sprite
+	;LDA #5
+	;STA NUSIZ0
+
 	; set background colour
 	LDA #BACKGROUND_COLOR
 	STA	COLUBK
@@ -106,10 +113,24 @@ vertical_loop
 
 	; frame triage - cycle through vblank kernels every VBLANK_CYCLE frames
 	LDY VBLANK_CYCLE
-	DEY
+	CPY #VBLANK_CYCLE_SPRITE
 	BEQ frame_player_sprite
+	CPY #VBLANK_CYCLE_PFIELD
+	BEQ frame_playfield
+	; fall through 
+
+	; FRAME - SPARE
+	DEY
 	STY VBLANK_CYCLE
 	JMP end_frame_triage
+	; FRAME - SPARE
+
+	; FRAME - PLAYFIELD
+frame_playfield
+	DEY
+	STY VBLANK_CYCLE
+	JMP end_frame_triage
+	; END - FRAME - PLAYFIELD
 
 	; FRAME - PLAYER SPRITE
 frame_player_sprite
@@ -119,13 +140,13 @@ frame_player_sprite
 
 	; check fire button
 	LDA INPT4
-	BMI joy_fire_off
+	BMI end_anim
 
 	; fire is pressed
 
 	; do nothing if fire was pressed during previous frame
 	LDY FIRE_HELD
-	BPL joy_fire_held
+	BPL continue_anim
 
 	; record held state
 	STA FIRE_HELD
@@ -141,7 +162,7 @@ frame_player_sprite
 
 	JMP do_anim
 
-joy_fire_off
+end_anim
 	STA FIRE_HELD
 
 	LDA FLY_FRAME
@@ -149,7 +170,7 @@ joy_fire_off
 
 	JMP fly_down
 
-joy_fire_held
+continue_anim
 	LDA FLY_FRAME
 	BEQ fly_down 
 	; fall through
@@ -214,6 +235,8 @@ fly_lowest
 	STA BIRD_POS
 
 fly_end
+	; fall through to end_frame_triage
+
 	; END - FRAME - PLAYER SPRITE
 
 end_frame_triage
@@ -276,7 +299,7 @@ sprite_display_kernel_loop
 	JMP sprite_line	
 
 sprite_on
-	; number of lines in the sprite
+	; x will hold number of lines remaining in the sprite (valid until "sprite_off")
 	LDX	SPRITE_LINES
 
 sprite_line
