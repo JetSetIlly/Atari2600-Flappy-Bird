@@ -49,6 +49,25 @@ SPRITE_WINGS_FLAT		HEX	00 00 00 7F 62 00 00
 SPRITE_WINGS_DOWN		HEX	40 60 70 7F 02 00 00
 SPRITE_LINES				.byte	6
 
+
+; ----------------------------------
+	mac FLIP_SPRITE
+	LDA SPRITE_ADDRESS
+	CMP #<SPRITE_WINGS_DOWN
+	BEQ .use_sprite_flat
+
+	LDA #<SPRITE_WINGS_DOWN
+	STA SPRITE_ADDRESS
+	JMP .end_sprite_flip
+
+.use_sprite_flat
+	LDA #<SPRITE_WINGS_FLAT
+	STA SPRITE_ADDRESS
+.end_sprite_flip
+	endm
+; ----------------------------------
+
+
 ; ----------------------------------
 ; SETUP
 
@@ -162,19 +181,7 @@ new_anim
 	LDA #FLY_CLIMB_START_FRAME
 	STA FLY_FRAME
 
-flip_sprite
-	LDA SPRITE_ADDRESS
-	CMP #<SPRITE_WINGS_DOWN
-	BEQ use_sprite_flat
-
-	LDA #<SPRITE_WINGS_DOWN
-	STA SPRITE_ADDRESS
-	JMP end_sprite_flip
-
-use_sprite_flat
-	LDA #<SPRITE_WINGS_FLAT
-	STA SPRITE_ADDRESS
-end_sprite_flip
+	FLIP_SPRITE
 
 continue_anim
 	STA FIRE_HELD
@@ -211,6 +218,8 @@ glide_test
 	; have we been flying/gliding for more than FLY_GLIDE_FRAMES frames ...
 	CMP #FLY_GLIDE_FRAMES
 	BPL end_glide
+
+	FLIP_SPRITE
 
 	INC FLY_FRAME
 	JMP fly_end
