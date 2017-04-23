@@ -3,49 +3,52 @@
 	include vcs.h
 	include macro.h
 
-	; program constants
+; program constants
+BACKGROUND_COLOR		EQU		$85
+PLAYFIELD_COLOR			EQU		$50
+NUM_SCANLINES				EQU		192
 
-; how often (in frames) each vblank kernel should run
+	; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT	EQU		$3
 VBLANK_CYCLE_SPRITE EQU		$1
 VBLANK_CYCLE_PFIELD	EQU		$2
 VBLANK_CYCLE_SPARE	EQU		$3
 
-; screen boundries for bird sprite
+	; screen boundries for bird sprite
 BIRD_POS_HIGH				EQU		$BF
 BIRD_POS_LOW				EQU		$9
 
-; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
+	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
+FLY_START_FRAME			EQU		$1
 FLY_UP_FRAMES				EQU		$5
 FLY_GLIDE_FRAMES		EQU		FLY_UP_FRAMES + $3
 
-; number of pixels bird sprite should fly up per frame
+	; number of pixels bird sprite should fly up per frame
 CLIMB_RATE					EQU		$4
 
 FALL_RATE_INIT			EQU		$1
 BIRD_POS_INIT				EQU		$BF
 FLY_FRAME_INIT			EQU		$0
 
-BACKGROUND_COLOR		EQU		$85
-NUM_SCANLINES				EQU		192
 
-	; data  - variables
+; data  - variables
 	SEG.U RAM 
-	ORG $80
+	ORG $80			; start of 2600 RAM
 VBLANK_CYCLE				ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; fly direction: 0 = dive, <= FLY_UP_FRAMES = climb, <= FLY_GLIDE_FRAMES = glide
 FALL_RATE						ds 1
-FLAP_CYCLE					ds 1	; flips betwen 00000000 and 11111111
+FLAP_CYCLE					ds 1	; flips betwen %00000000 and %10000000
+													; we'll use this byte to store other flags if necessary
 
-	; sprite data
+; sprite data
 	SEG
-	ORG $F000
-SPRITE_WINGS_UP			.byte	$00,$00,$00,$7F,$72,$60,$40
-SPRITE_WINGS_FLAT		.byte	$00,$00,$00,$7F,$62,$00,$00
-SPRITE_WINGS_DOWN		.byte	$40,$60,$70,$7F,$02,$00,$00
-SPRITE_LINES				.byte	$6
+	ORG $F000		; start of cart ROM
+SPRITE_WINGS_UP			HEX	00 00 00 7F 72 60 40 
+SPRITE_WINGS_FLAT		HEX	00 00 00 7F 62 00 00
+SPRITE_WINGS_DOWN		HEX	40 60 70 7F 02 00 00
+SPRITE_LINES				.byte	6
 
 ; ----------------------------------
 ; SETUP
@@ -69,7 +72,7 @@ setup
 	LDA #FALL_RATE_INIT
 	STA FALL_RATE
 
-	LDA #0
+	LDA #%00000000
 	STA FLAP_CYCLE
 
 	; widen player sprite
@@ -152,12 +155,12 @@ frame_player_sprite
 	STA FIRE_HELD
 
 	; start new fly animation
-	LDA #1
+	LDA #FLY_START_FRAME
 	STA FLY_FRAME
 
 	; flip flap cycle
 	LDA FLAP_CYCLE
-	EOR #255
+	EOR	%10000000 
 	STA FLAP_CYCLE
 
 	JMP do_anim
@@ -275,10 +278,13 @@ sprite_display_kernel_loop
 	; wait for beginning of horizontal scan
 	STA WSYNC
 
+	; 22 cycles until start of visible screen
+
 	; reset player sprite at beginning of scan line
 	; note that we don't need anything more sophisticated than
 	; this because the bird never moves horizontally
 	STA RESP0
+
 	; naive wait method (four cycles) for RESP0 to be acknowledged
 	; TODO: do something useful here that doesn't involve the player sprite
 	NOP
@@ -337,8 +343,7 @@ sprite_off
 
 next_kernel_loop
 	DEY		; next scanline
-	BNE sprite_display_kernel_loop 
-	;JMP overscan_kernel	
+	BNE sprite_display_kernel_loop
 
 ; END - SPRITE LOOP
 
