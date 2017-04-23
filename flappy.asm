@@ -219,7 +219,9 @@ glide_test
 	CMP #FLY_GLIDE_FRAMES
 	BPL end_glide
 
-	FLIP_SPRITE
+	; make sure we're using the flat wing sprite when gliding
+	LDA #<SPRITE_WINGS_FLAT
+	STA SPRITE_ADDRESS
 
 	INC FLY_FRAME
 	JMP fly_end
