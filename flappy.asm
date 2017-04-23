@@ -19,16 +19,16 @@ BIRD_POS_HIGH				EQU		$BF
 BIRD_POS_LOW				EQU		$9
 
 	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_START_FRAME			EQU		$1
-FLY_UP_FRAMES				EQU		$5
-FLY_GLIDE_FRAMES		EQU		FLY_UP_FRAMES + $3
+FLY_CLIMB_START_FRAME		EQU		$0
+FLY_DIVE_START_FRAME		EQU		$FF
+FLY_UP_FRAMES						EQU		$4
+FLY_GLIDE_FRAMES				EQU		FLY_UP_FRAMES + $3
 
 	; number of pixels bird sprite should fly up per frame
 CLIMB_RATE					EQU		$4
 
-FALL_RATE_INIT			EQU		$1
 BIRD_POS_INIT				EQU		$BF
-FLY_FRAME_INIT			EQU		$0
+FLY_FRAME_INIT			EQU		FLY_DIVE_START_FRAME
 
 
 ; data  - variables
@@ -37,8 +37,7 @@ FLY_FRAME_INIT			EQU		$0
 VBLANK_CYCLE				ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
-FLY_FRAME						ds 1	; fly direction: 0 = dive, <= FLY_UP_FRAMES = climb, <= FLY_GLIDE_FRAMES = glide
-FALL_RATE						ds 1
+FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2
 
 ; sprite data
@@ -68,9 +67,6 @@ setup
 
 	LDA #FLY_FRAME_INIT
 	STA FLY_FRAME
-
-	LDA #FALL_RATE_INIT
-	STA FALL_RATE
 
 	; sprite to use in display kernel
 	LDA #<SPRITES
@@ -163,27 +159,27 @@ frame_player_sprite
 
 new_anim
 	; start new fly animation
-	LDA #FLY_START_FRAME
+	LDA #FLY_CLIMB_START_FRAME
 	STA FLY_FRAME
 
-.flip_sprite
+flip_sprite
 	LDA SPRITE_ADDRESS
 	CMP #<SPRITE_WINGS_DOWN
-	BEQ .use_sprite_flat
+	BEQ use_sprite_flat
 
 	LDA #<SPRITE_WINGS_DOWN
 	STA SPRITE_ADDRESS
-	JMP .end_sprite_flip
+	JMP end_sprite_flip
 
-.use_sprite_flat
+use_sprite_flat
 	LDA #<SPRITE_WINGS_FLAT
 	STA SPRITE_ADDRESS
-.end_sprite_flip
+end_sprite_flip
 
 continue_anim
 	STA FIRE_HELD
 	LDA FLY_FRAME
-	BEQ fly_down
+	BMI fly_down
 	; fall through to do_anim unless fly_frame is 0
 
 do_anim
@@ -220,10 +216,8 @@ glide_test
 	JMP fly_end
 
 end_glide
-	LDA #FLY_FRAME_INIT
+	LDA #FLY_DIVE_START_FRAME
 	STA FLY_FRAME
-	LDA #FALL_RATE_INIT
-	STA FALL_RATE
 
 fly_down
 	; use fly down sprite
@@ -231,8 +225,8 @@ fly_down
 	STA SPRITE_ADDRESS
 
 	LDA BIRD_POS
-	SEC
-	SBC FALL_RATE
+	CLC
+	ADC FLY_FRAME
 
 	; check to see FALL RATE will take BIRD_POS below zero ...
 	BCC	fly_lowest
@@ -242,7 +236,7 @@ fly_down
 	BCC	fly_lowest
 
 	STA BIRD_POS
-	INC FALL_RATE		; no upper limit to FALL_RATE
+	DEC FLY_FRAME
 	JMP fly_end
 
 fly_lowest
