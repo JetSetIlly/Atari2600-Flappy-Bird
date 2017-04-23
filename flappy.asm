@@ -39,12 +39,12 @@ FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negativ
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; fly direction: 0 = dive, <= FLY_UP_FRAMES = climb, <= FLY_GLIDE_FRAMES = glide
 FALL_RATE						ds 1
-FLAP_CYCLE					ds 1	; flips betwen %00000000 and %10000000
-													; we'll use this byte to store other flags if necessary
+SPRITE_ADDRESS			ds 2
 
 ; sprite data
 	SEG
 	ORG $F000		; start of cart ROM
+SPRITES
 SPRITE_WINGS_UP			HEX	00 00 00 7F 72 60 40 
 SPRITE_WINGS_FLAT		HEX	00 00 00 7F 62 00 00
 SPRITE_WINGS_DOWN		HEX	40 60 70 7F 02 00 00
@@ -72,8 +72,12 @@ setup
 	LDA #FALL_RATE_INIT
 	STA FALL_RATE
 
-	LDA #%00000000
-	STA FLAP_CYCLE
+	; sprite to use in display kernel
+	LDA #<SPRITES
+	STA SPRITE_ADDRESS
+	; all sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
+	LDA #>SPRITES
+	STA SPRITE_ADDRESS+1
 
 	; widen player sprite
 	;LDA #5
@@ -115,71 +119,76 @@ vertical_loop
 ; VBLANK KERNEL
 
 	; frame triage - cycle through vblank kernels every VBLANK_CYCLE frames
-	LDY VBLANK_CYCLE
-	CPY #VBLANK_CYCLE_SPRITE
+	LDX VBLANK_CYCLE
+	CPX #VBLANK_CYCLE_SPRITE
 	BEQ frame_player_sprite
-	CPY #VBLANK_CYCLE_PFIELD
+	CPX #VBLANK_CYCLE_PFIELD
 	BEQ frame_playfield
 	; fall through 
 
-	; FRAME - SPARE
-	DEY
-	STY VBLANK_CYCLE
-	JMP end_frame_triage
-	; FRAME - SPARE
 
+	; -------------
+	; FRAME - SPARE
+	DEX
+	STX VBLANK_CYCLE
+	JMP end_frame_triage
+	; END - FRAME - SPARE
+	; -------------
+
+
+	; -------------
 	; FRAME - PLAYFIELD
 frame_playfield
-	DEY
-	STY VBLANK_CYCLE
+	DEX
+	STX VBLANK_CYCLE
 	JMP end_frame_triage
 	; END - FRAME - PLAYFIELD
+	; -------------
 
+
+	; -------------
 	; FRAME - PLAYER SPRITE
 frame_player_sprite
-	; reset frame cycle
-	LDY #VBLANK_CYCLE_COUNT
-	STY VBLANK_CYCLE
+	; reset vblank cycle
+	LDX #VBLANK_CYCLE_COUNT
+	STX VBLANK_CYCLE
 
 	; check fire button
 	LDA INPT4
-	BMI end_anim
+	BMI continue_anim
 
-	; fire is pressed
-
-	; do nothing if fire was pressed during previous frame
-	LDY FIRE_HELD
+	; do nothing if fire is being held
+	LDX FIRE_HELD
 	BPL continue_anim
 
-	; record held state
-	STA FIRE_HELD
-
+new_anim
 	; start new fly animation
 	LDA #FLY_START_FRAME
 	STA FLY_FRAME
 
-	; flip flap cycle
-	LDA FLAP_CYCLE
-	EOR	%10000000 
-	STA FLAP_CYCLE
+.flip_sprite
+	LDA SPRITE_ADDRESS
+	CMP #<SPRITE_WINGS_DOWN
+	BEQ .use_sprite_flat
 
-	JMP do_anim
+	LDA #<SPRITE_WINGS_DOWN
+	STA SPRITE_ADDRESS
+	JMP .end_sprite_flip
 
-end_anim
-	STA FIRE_HELD
-
-	LDA FLY_FRAME
-	BNE do_anim
-
-	JMP fly_down
+.use_sprite_flat
+	LDA #<SPRITE_WINGS_FLAT
+	STA SPRITE_ADDRESS
+.end_sprite_flip
 
 continue_anim
+	STA FIRE_HELD
 	LDA FLY_FRAME
-	BEQ fly_down 
-	; fall through
+	BEQ fly_down
+	; fall through to do_anim unless fly_frame is 0
 
 do_anim
 	; have we been flying up for more than FLY_UP_FRAMES frames ...
+	LDA FLY_FRAME
 	CMP #FLY_UP_FRAMES
 	BPL glide_test
 
@@ -217,6 +226,10 @@ end_glide
 	STA FALL_RATE
 
 fly_down
+	; use fly down sprite
+	LDA #<SPRITE_WINGS_UP
+	STA SPRITE_ADDRESS
+
 	LDA BIRD_POS
 	SEC
 	SBC FALL_RATE
@@ -241,12 +254,14 @@ fly_end
 	; fall through to end_frame_triage
 
 	; END - FRAME - PLAYER SPRITE
+	; -------------
+
 
 end_frame_triage
 	; setup display kernel
 
-	; Y register will now contain the current scanline for the duration of the display kernal
-	LDY	#NUM_SCANLINES
+	; X register will now contain the current scanline for the duration of the display kernal
+	LDX	#NUM_SCANLINES
 
 	; set up horizontal movement
 	LDA #0
@@ -268,11 +283,13 @@ vblank_loop
 ; ----------------------------------
 ; DISPLAY KERNEL
 
-; Y register contain the current scanline for the duration of the display kernal
+; X register contain the current scanline for the duration of the display kernal
 
-; X register contains current sprite line once current scan line equals BIRD_POS
+; Y register contains current sprite line once current scan line equals BIRD_POS
 ;			in between jumps to sprite_on and sprite_off (which will span many iterations
 ;			of sprite_display_kernel_loop)
+; note: we need to use Y register because we'll be performing a post-indexed indirect address
+; to set the sprite line
 
 sprite_display_kernel_loop
 	; wait for beginning of horizontal scan
@@ -281,68 +298,40 @@ sprite_display_kernel_loop
 	; 22 cycles until start of visible screen
 
 	; reset player sprite at beginning of scan line
-	; note that we don't need anything more sophisticated than
+	; we don't need anything more sophisticated than
 	; this because the bird never moves horizontally
 	STA RESP0
 
-	; naive wait method (four cycles) for RESP0 to be acknowledged
-	; TODO: do something useful here that doesn't involve the player sprite
-	NOP
-	NOP
-	NOP
-	NOP
+	; note: there needs to be four cycles between writing to RESP0 and GRP0
 
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
-	CPY BIRD_POS
+	CPX BIRD_POS
 	BEQ sprite_on
 
 	; the bird sprite is more than one scanline tall.  check to see if we're still in
 	; the sprite's range and move sprite line count to accumulator and branch accordingly
-	; NOTE: vblank kernel may leave junk in X register, which will cause odd sprite drawing
-	; if so, vblank kernel should reset X to #NUM_SCANLINES
-	TXA
+	; note: vblank (or overscan) kernel may have left junk in Y register, which will cause
+	; odd sprite drawing. if so, vblank kernel should reset Y to #NUM_SCANLINES
+	TYA
 	BMI sprite_off
 	JMP sprite_line	
 
 sprite_on
 	; x will hold number of lines remaining in the sprite (valid until "sprite_off")
-	LDX	SPRITE_LINES
+	LDY	SPRITE_LINES
 
 sprite_line
-	; is FLY_FRAME == 0
-	LDA FLY_FRAME
-	BEQ sprite_wings_up
-
-	; is FLY_FRAME more than FLY_UP_FRAMES
-	CMP FLY_UP_FRAMES
-	BPL sprite_glide
-
-	; fall through to sprite_climb
-	
-sprite_flap
-	LDA FLAP_CYCLE
-	BNE sprite_wings_up
-	LDA SPRITE_WINGS_FLAT,X
-	JMP sprite_line_next
-
-sprite_wings_up
-	LDA SPRITE_WINGS_UP,X
-	JMP sprite_line_next
-
-sprite_glide
-	LDA SPRITE_WINGS_DOWN,X
-
-sprite_line_next
+	LDA (SPRITE_ADDRESS),Y
 	STA GRP0
-	DEX
-	JMP next_kernel_loop
+	DEY
+	JMP next_display_line
 
 sprite_off
 	LDA #0
 	STA GRP0
 
-next_kernel_loop
-	DEY		; next scanline
+next_display_line
+	DEX		; next scanline
 	BNE sprite_display_kernel_loop
 
 ; END - SPRITE LOOP
@@ -361,13 +350,13 @@ overscan_kernel
 	LDA	#2
 	STA VBLANK
 
-	LDY	#30			; 30 lines in overscan
+	LDX	#30			; 30 lines in overscan
 overscan_loop
 
 	; TODO custom overscan kernel
 
 	STA WSYNC
-	DEY
+	DEX
 	BNE overscan_loop
 
 ; END - OVERSCAN KERNEL
