@@ -44,10 +44,11 @@ SPRITE_ADDRESS			ds 2
 	SEG
 	ORG $F000		; start of cart ROM
 SPRITES
-SPRITE_WINGS_UP			HEX	00 00 00 7F 72 60 40 
-SPRITE_WINGS_FLAT		HEX	00 00 00 7F 62 00 00
-SPRITE_WINGS_DOWN		HEX	40 60 70 7F 02 00 00
-SPRITE_LINES				.byte	6
+SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40 
+SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
+SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
+SPRITE_LINES				.byte	7
+; note: first FF in each sprite is a boundry byte - value is unimportant
 
 
 ; ----------------------------------
@@ -268,6 +269,9 @@ end_frame_triage
 	; X register will now contain the current scanline for the duration of the display kernal
 	LDX	#NUM_SCANLINES
 
+	; preload Y register with number of sprite lines
+	LDY SPRITE_LINES
+
 	; set up horizontal movement
 	LDA #0
 	STA WSYNC
@@ -280,6 +284,13 @@ vblank_loop
 	BNE vblank_loop
 
 	STA WSYNC
+
+	; reset player sprite at beginning of scan line
+	; we don't need anything more sophisticated than
+	; this because the bird never moves horizontally
+	; note: there needs to be four cycles between writing to RESP0 and GRP0
+	STA RESP0
+
 	STA VBLANK				; turn beam back on (writing zero)
 
 ; END - VBLANK KERNEL
@@ -290,10 +301,8 @@ vblank_loop
 
 ; X register contain the current scanline for the duration of the display kernal
 
-; Y register contains current sprite line once current scan line equals BIRD_POS
-;			in between jumps to sprite_on and sprite_off (which will span many iterations
-;			of sprite_display_kernel_loop)
-; note: we need to use Y register because we'll be performing a post-indexed indirect address
+; Y register contains number of SPRITE_LINES remaining
+; note: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; to set the sprite line
 
 sprite_display_kernel_loop
@@ -302,38 +311,22 @@ sprite_display_kernel_loop
 
 	; 22 cycles until start of visible screen
 
-	; reset player sprite at beginning of scan line
-	; we don't need anything more sophisticated than
-	; this because the bird never moves horizontally
-	STA RESP0
-
-	; note: there needs to be four cycles between writing to RESP0 and GRP0
-
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
-	CPX BIRD_POS
-	BEQ sprite_on
+	CPX BIRD_POS							; 2
+	BCS next_display_line			; 2/3
 
-	; the bird sprite is more than one scanline tall.  check to see if we're still in
-	; the sprite's range and move sprite line count to accumulator and branch accordingly
-	; note: vblank (or overscan) kernel may have left junk in Y register, which will cause
-	; odd sprite drawing. if so, vblank kernel should reset Y to #NUM_SCANLINES
-	TYA
-	BMI sprite_off
-	JMP sprite_line	
+	TYA												; 2
+	BMI next_display_line			; 2/3
+	BEQ	sprite_off						; 2/3
 
-sprite_on
-	; x will hold number of lines remaining in the sprite (valid until "sprite_off")
-	LDY	SPRITE_LINES
-
-sprite_line
-	LDA (SPRITE_ADDRESS),Y
-	STA GRP0
-	DEY
-	JMP next_display_line
+	LDA (SPRITE_ADDRESS),Y		; 5
+	STA GRP0									; 3
+	DEY												; 2
+	JMP next_display_line			; 3
 
 sprite_off
-	LDA #0
-	STA GRP0
+	STY GRP0									; 3
+	DEY												; 2
 
 next_display_line
 	DEX		; next scanline
