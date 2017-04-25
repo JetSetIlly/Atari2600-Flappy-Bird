@@ -38,7 +38,9 @@ VBLANK_CYCLE				ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
-SPRITE_ADDRESS			ds 2
+SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
+OBSTACLE_1_GAP_T		ds 1
+OBSTACLE_1_GAP_H		ds 1
 
 ; sprite data
 	SEG
@@ -95,9 +97,17 @@ setup
 	LDA #>SPRITES
 	STA SPRITE_ADDRESS+1
 
-	; widen player sprite
-	;LDA #5
-	;STA NUSIZ0
+	; speed of flight
+	LDA #16
+	STA HMM1
+
+	; obstacles
+	LDA #32		; width 
+	STA NUSIZ1
+	LDA #$50
+	STA OBSTACLE_1_GAP_T
+	LDA #$20
+	STA OBSTACLE_1_GAP_H
 
 	; set background colour
 	LDA #BACKGROUND_COLOR
@@ -139,7 +149,7 @@ vertical_loop
 	CPX #VBLANK_CYCLE_SPRITE
 	BEQ frame_player_sprite
 	CPX #VBLANK_CYCLE_PFIELD
-	BEQ frame_playfield
+	BEQ frame_obstacles
 	; fall through 
 
 
@@ -153,12 +163,23 @@ vertical_loop
 
 
 	; -------------
-	; FRAME - PLAYFIELD
-frame_playfield
+	; FRAME - OBSTACLES
+frame_obstacles
 	DEX
 	STX VBLANK_CYCLE
+
+	; check collisions
+	BIT CXM1P
+	BMI bird_collision
+
+	STA CXCLR
 	JMP end_frame_triage
-	; END - FRAME - PLAYFIELD
+
+bird_collision
+	; TODO: better collision handling
+	BRK
+
+	; END - FRAME - OBSTACLES
 	; -------------
 
 
@@ -305,34 +326,62 @@ vblank_loop
 ; note: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; to set the sprite line
 
-sprite_display_kernel_loop
+display_loop
 	; wait for beginning of horizontal scan
 	STA WSYNC
 
-	; 22 cycles until start of visible screen
-
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPX BIRD_POS							; 2
-	BCS next_display_line			; 2/3
+	BCS sprite_done						; 2/3
 
 	TYA												; 2
-	BMI next_display_line			; 2/3
+	BMI sprite_done						; 2/3
 	BEQ	sprite_off						; 2/3
 
 	LDA (SPRITE_ADDRESS),Y		; 5
 	STA GRP0									; 3
 	DEY												; 2
-	JMP next_display_line			; 3
+	JMP sprite_done						; 3
 
 sprite_off
 	STY GRP0									; 3
 	DEY												; 2
 
-next_display_line
-	DEX		; next scanline
-	BNE sprite_display_kernel_loop
+sprite_done
 
-; END - SPRITE LOOP
+	; maximum 76 cycles between STA WSYNC 
+	; up to this point:
+	;		16 - last sprte line drawn
+	;		23 - drawn sprite line
+	;		9 - sprite has been completed
+	;		5 - scan line above BIRD_POS
+ 
+	; 48 cycles safely available
+	; (5 cycles used at end of display_loop)
+
+draw_obstacles
+	TXA
+	CMP OBSTACLE_1_GAP_T
+	BMI obstacle_on
+	SEC
+	SBC OBSTACLE_1_GAP_T
+	CMP OBSTACLE_1_GAP_H
+	BMI obstacle_off
+
+obstacle_on
+	LDA #2
+	STA ENAM1
+	JMP obstacle_done
+
+obstacle_off
+	LDA #0
+	STA ENAM1
+
+obstacle_done
+
+	; next scanline
+	DEX
+	BNE display_loop
 
 ; END - DISPLAY KERNEL
 ; ----------------------------------
