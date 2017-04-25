@@ -6,7 +6,7 @@
 ; program constants
 BACKGROUND_COLOR		EQU		$85
 PLAYFIELD_COLOR			EQU		$50
-NUM_SCANLINES				EQU		192
+NUM_SCANLINES				EQU		$C0	 ; 192
 
 	; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT	EQU		$3
@@ -15,8 +15,8 @@ VBLANK_CYCLE_PFIELD	EQU		$2
 VBLANK_CYCLE_SPARE	EQU		$3
 
 	; screen boundries for bird sprite
-BIRD_POS_HIGH				EQU		$BF
-BIRD_POS_LOW				EQU		$9
+BIRD_POS_HIGH				EQU		$C0
+BIRD_POS_LOW				EQU		$10
 
 	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_CLIMB_START_FRAME		EQU		$0
@@ -330,6 +330,13 @@ display_loop
 	; wait for beginning of horizontal scan
 	STA WSYNC
 
+	; interlace sprite and obstacle drawing
+	TXA												; 2
+	AND #%00000001						; 2
+	BEQ do_obstacle						; 2/3
+
+; -----------------------
+do_sprite
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPX BIRD_POS							; 2
 	BCS sprite_done						; 2/3
@@ -339,6 +346,8 @@ display_loop
 	BEQ	sprite_off						; 2/3
 
 	LDA (SPRITE_ADDRESS),Y		; 5
+	; idle cycles to prevent writing to GRP0 mid-colour-cycle
+	NOP												; 2
 	STA GRP0									; 3
 	DEY												; 2
 	JMP sprite_done						; 3
@@ -348,18 +357,22 @@ sprite_off
 	DEY												; 2
 
 sprite_done
+	JMP next_scanline
 
-	; maximum 76 cycles between STA WSYNC 
-	; up to this point:
-	;		16 - last sprte line drawn
-	;		23 - drawn sprite line
-	;		9 - sprite has been completed
-	;		5 - scan line above BIRD_POS
+; maximum 76 cycles between STA WSYNC 
+; up to this point (including interlace test):
+;		30 - last sprite line drawn
+;		31 - drawn sprite line
+;		15 - sprite has been completed
+;		11 - scan line above BIRD_POS
  
-	; 48 cycles safely available
-	; (5 cycles used at end of display_loop)
+; 40 cycles safely available
+; (5 cycles used at end of display_loop)
+; -----------------------
 
-draw_obstacles
+
+; -----------------------
+do_obstacle
 	TXA
 	CMP OBSTACLE_1_GAP_T
 	BMI obstacle_on
@@ -378,8 +391,9 @@ obstacle_off
 	STA ENAM1
 
 obstacle_done
+; -----------------------
 
-	; next scanline
+next_scanline
 	DEX
 	BNE display_loop
 
