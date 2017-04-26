@@ -32,6 +32,21 @@ VBLANK_TIMER_VAL = (CYCLES_PER_SCANLINE * VBLANK_SCANLINES - VBLANK_KERNEL_TIMER
 	endm
 
 	mac VBLANK_KERNEL_SETUP
+	; ----
+	; original comment 
+	; ----
+	; hold VBLANK for 37 scan lines
+	; why give the timer a value of 43?
+	; 228 colour counts per scan line and 3 processor cycles per colour count
+	; = 76 processor cycles per scan line - 37 * 76 = 2812
+	; however:
+	;   the timer takes 5 cycles to set 
+	;   the checking loop (below) takes six cycles
+	;   = 11
+	; 2812 - 11 = 2801
+	; using the 64 cycle timer
+	; 2801 / 64 = 43
+	; ----
 	LDA	#VBLANK_TIMER_VAL
 	STA TIM64T
 	endm
