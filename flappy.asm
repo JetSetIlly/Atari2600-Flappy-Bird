@@ -2,33 +2,36 @@
 	processor 6502
 	include vcs.h
 	include macro.h
+	include vcs_extra.h
+
+VBLANK_SCANLINES = 36	; 37 is the textbook value - stealing a scanline so we can set sprite positions
 
 ; program constants
-BACKGROUND_COLOR		EQU		$85
-PLAYFIELD_COLOR			EQU		$50
-NUM_SCANLINES				EQU		$C0	 ; 192
+BACKGROUND_COLOR		=		$85
+PLAYFIELD_COLOR			=		$50
+NUM_SCANLINES				=		$C0	 ; 192
 
 	; how often (in frames) each vblank kernel should run
-VBLANK_CYCLE_COUNT	EQU		$3
-VBLANK_CYCLE_SPRITE EQU		$1
-VBLANK_CYCLE_PFIELD	EQU		$2
-VBLANK_CYCLE_SPARE	EQU		$3
+VBLANK_CYCLE_COUNT	=		$3
+VBLANK_CYCLE_SPRITE =		$1
+VBLANK_CYCLE_PFIELD	=		$2
+VBLANK_CYCLE_SPARE	=		$3
 
 	; screen boundries for bird sprite
-BIRD_POS_HIGH				EQU		$C0
-BIRD_POS_LOW				EQU		$10
+BIRD_POS_HIGH				=		$C0
+BIRD_POS_LOW				=		$10
 
 	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_CLIMB_START_FRAME		EQU		$0
-FLY_DIVE_START_FRAME		EQU		$FF
-FLY_UP_FRAMES						EQU		$4
-FLY_GLIDE_FRAMES				EQU		FLY_UP_FRAMES + $3
+FLY_CLIMB_START_FRAME		=		$0
+FLY_DIVE_START_FRAME		=		$FF
+FLY_UP_FRAMES						=		$4
+FLY_GLIDE_FRAMES				=		FLY_UP_FRAMES + $3
 
-	; number of pixels bird sprite should fly up per frame
-CLIMB_RATE					EQU		$4
+	; number of scanlines bird sprite should fly up per frame
+CLIMB_RATE					=		$4
 
-BIRD_POS_INIT				EQU		$BF
-FLY_FRAME_INIT			EQU		FLY_DIVE_START_FRAME
+BIRD_POS_INIT				=		$BF
+FLY_FRAME_INIT			=		FLY_DIVE_START_FRAME
 
 
 ; data  - variables
@@ -117,29 +120,8 @@ setup
 ; ----------------------------------
 
 
-; ----------------------------------
-; VSYNC KERNEL
-
 vertical_loop
-	VERTICAL_SYNC
-
-	; hold VBLANK for 37 scan lines
-	; why give the timer a value of 43?
-	; 228 colour counts per scan line and 3 processor cycles per colour count
-	; = 76 processor cycles per scan line - 37 * 76 = 2812
-	; however:
-	;   the timer takes 5 cycles to set 
-	;   the checking loop (below) takes six cycles
-	;   = 11
-	; 2812 - 11 = 2801
-	; using the 64 cycle timer
-	; 2801 / 64 = 43
-	LDA	#43
-	STA TIM64T
-
-; END - VSYNC KERNEL
-; ----------------------------------
-
+	VSYNC_KERNEL
 	
 ; ----------------------------------
 ; VBLANK KERNEL
@@ -298,18 +280,9 @@ end_frame_triage
 	STA WSYNC
 	STA HMOVE
 
-	; wait for end of 37 scanlines of vblank
-	; timer set in VSYNC KERNEL above
-vblank_loop
-	LDA INTIM
-	BNE vblank_loop
-
+	VBLANK_KERNEL_WAIT
 	STA WSYNC
 
-	; reset player sprite at beginning of scan line
-	; we don't need anything more sophisticated than
-	; this because the bird never moves horizontally
-	; note: there needs to be four cycles between writing to RESP0 and GRP0
 	STA RESP0
 
 	STA VBLANK				; turn beam back on (writing zero)
