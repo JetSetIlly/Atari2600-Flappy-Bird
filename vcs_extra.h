@@ -1,28 +1,32 @@
 
-	mac IDLE_WSYNC_TO_VISIBLE_SCREEN
-		NOP
-		NOP
-		NOP
-		NOP
-		NOP
-		NOP
-		NOP
-		NOP
-		NOP
+	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP
+		; cusp defined as "3 machine cycles to visible screen"
+
+		; the zero page write to WSYNC adds abother 9 clock counts (3 cycles)
+		STA WSYNC
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		IDLE_6_CLOCK_COUNTS
+		; total number of "idle" clock counts to 57
+		; leaving another 9 clock counts (3 cycles) for writing to a reset player/missile/ball register
+		; just in time for the visible screen
 	endm
 
-	mac IDLE_ONE_COLOR_CYCLE
-		NOP
-		NOP
+	mac IDLE_6_CLOCK_COUNTS
+		NOP			; 2 cycles = 6 clock counts
 	endm
 
-COLOR_COUNTS_PER_SCANLINE = 228
-CYCLES_PER_COLOUR_COUNT = 3
-CYCLES_PER_SCANLINE = COLOR_COUNTS_PER_SCANLINE / CYCLES_PER_COLOUR_COUNT
+CLOCK_COUNTS_PER_SCANLINE = 228
+CLOCK_COUNTS_PER_CYCLE = 3
+CYCLES_PER_SCANLINE = CLOCK_COUNTS_PER_SCANLINE / CLOCK_COUNTS_PER_CYCLE
 VBLANK_KERNEL_TIMER_SET_IN_CYCLES = 5
 VBLANK_KERNEL_WAIT_LOOP = 6
-
-; define VBLANK_SCANLINES somewhere in your source
+VBLANK_SCANLINES = 37	; 37 is the textbook value
 
 VBLANK_TIMER_VAL = (CYCLES_PER_SCANLINE * VBLANK_SCANLINES - VBLANK_KERNEL_TIMER_SET_IN_CYCLES - VBLANK_KERNEL_WAIT_LOOP) / 64
 

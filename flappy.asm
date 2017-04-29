@@ -4,8 +4,6 @@
 	include macro.h
 	include vcs_extra.h
 
-VBLANK_SCANLINES = 36	; 37 is the textbook value - stealing a scanline so we can set sprite positions
-
 ; program constants
 BACKGROUND_COLOR		=		$85
 PLAYFIELD_COLOR			=		$50
@@ -57,27 +55,9 @@ SPRITE_LINES				.byte	7
 
 
 ; ----------------------------------
-	mac FLIP_SPRITE
-	LDA SPRITE_ADDRESS
-	CMP #<SPRITE_WINGS_DOWN
-	BEQ .use_sprite_flat
-
-	LDA #<SPRITE_WINGS_DOWN
-	STA SPRITE_ADDRESS
-	JMP .end_sprite_flip
-
-.use_sprite_flat
-	LDA #<SPRITE_WINGS_FLAT
-	STA SPRITE_ADDRESS
-.end_sprite_flip
-	endm
-; ----------------------------------
-
-
-; ----------------------------------
 ; SETUP
 
-setup
+setup SUBROUTINE setup
 	CLEAN_START
 
 	; initialise variables
@@ -116,9 +96,16 @@ setup
 	LDA #BACKGROUND_COLOR
 	STA	COLUBK
 
+	JMP game
+
 ; END - SETUP
 ; ----------------------------------
 
+
+; ----------------------------------
+; GAME
+
+game SUBROUTINE game
 
 vertical_loop
 	VSYNC_KERNEL
@@ -180,12 +167,24 @@ frame_player_sprite
 	LDX FIRE_HELD
 	BPL continue_anim
 
-new_anim
 	; start new fly animation
 	LDA #FLY_CLIMB_START_FRAME
 	STA FLY_FRAME
 
-	FLIP_SPRITE
+	; flip sprite
+	LDA SPRITE_ADDRESS
+	CMP #<SPRITE_WINGS_DOWN
+	BEQ flip_sprite_use_flat
+
+	LDA #<SPRITE_WINGS_DOWN
+	STA SPRITE_ADDRESS
+	JMP flip_sprite_end
+
+flip_sprite_use_flat
+	LDA #<SPRITE_WINGS_FLAT
+	STA SPRITE_ADDRESS
+flip_sprite_end
+
 
 continue_anim
 	STA FIRE_HELD
@@ -276,13 +275,14 @@ end_frame_triage
 	LDY SPRITE_LINES
 
 	; set up horizontal movement
-	LDA #0
 	STA WSYNC
 	STA HMOVE
 
+	; position 
 	VBLANK_KERNEL_WAIT
-	STA WSYNC
 
+	; TODO: we only need to do this once at game start - implement a setup kernel
+	IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP
 	STA RESP0
 
 	STA VBLANK				; turn beam back on (writing zero)
@@ -398,7 +398,17 @@ overscan_loop
 
 	JMP vertical_loop
 
+; END - GAME
+; ----------------------------------
+
+
+; ----------------------------------
+; MACHINE INITIALISATION 
+
 	ORG $FFFA
 	.word setup		; NMI
 	.word setup		; RESET
 	.word setup		;	IRQ
+
+; END - MACHINE INITIALISATION 
+; ----------------------------------
