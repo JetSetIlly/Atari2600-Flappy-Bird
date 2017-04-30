@@ -42,9 +42,10 @@ BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
-OBSTACLE_PAUSE			ds 1
 OBSTACLE_1_GAP_T		ds 1
 OBSTACLE_1_GAP_H		ds 1
+
+OBSTACLE_PAUSE			ds 1	; flag - pause collision detection for obstacles if != 0
 
 ; sprite data
 	SEG
@@ -140,6 +141,8 @@ game_init SUBROUTINE game_init
 	; speed of flight
 	LDA #OBSTACLE_SPEED
 	STA HMM1
+
+	; allow collision detection
 	LDA #$0
 	STA OBSTACLE_PAUSE
 
@@ -184,6 +187,9 @@ game SUBROUTINE game
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
+	; no obsctacle collision for this frame so re-allow collision detection
+	; in time for next frame. note: we do this so that the reset obstacle routines
+	; don't run more than necessary
 	LDA #$0
 	STA OBSTACLE_PAUSE
 
@@ -200,6 +206,8 @@ game SUBROUTINE game
 	CLC
 	ADC #$8
 	STA OBSTACLE_1_GAP_T
+
+	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
 	STA OBSTACLE_PAUSE
 
