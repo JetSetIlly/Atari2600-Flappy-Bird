@@ -1,34 +1,55 @@
+VISIBLE_SCANLINES =	$C0	 ; 192
+
+	mac DEAD_FRAME
+		VSYNC_KERNEL
+		VBLANK_KERNEL_WAIT
+
+		STA WSYNC
+		LDX	#192			; 192 lines in display
+.display_loop
+		STA WSYNC
+		DEX
+		BNE .display_loop
+		OVERSCAN_KERNEL_EMPTY
+	endm
 
 	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP
 		; cusp defined as "3 machine cycles to visible screen"
-
 		; the zero page write to WSYNC adds abother 9 clock counts (3 cycles)
 		STA WSYNC
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		IDLE_6_CLOCK_COUNTS
-		; total number of "idle" clock counts to 57
-		; leaving another 9 clock counts (3 cycles) for writing to a reset player/missile/ball register
-		; just in time for the visible screen
+		SLEEP_CLOCK_COUNTS 48
+		; 48 clock counts leaves 9 clock counts (3 cycles) for writing to a reset player/missile/ball register
 	endm
 
-	mac IDLE_6_CLOCK_COUNTS
-		NOP			; 2 cycles = 6 clock counts
+	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_RIGHT
+		STA WSYNC
+		SLEEP_CLOCK_COUNTS 215
 	endm
 
-CLOCK_COUNTS_PER_SCANLINE = 228
-CLOCK_COUNTS_PER_CYCLE = 3
-CYCLES_PER_SCANLINE = CLOCK_COUNTS_PER_SCANLINE / CLOCK_COUNTS_PER_CYCLE
-VBLANK_KERNEL_TIMER_SET_IN_CYCLES = 5
-VBLANK_KERNEL_WAIT_LOOP = 6
-VBLANK_SCANLINES = 37	; 37 is the textbook value
+	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_MIDDLE
+		STA WSYNC
+		SLEEP_CLOCK_COUNTS 140
+	endm
 
-VBLANK_TIMER_VAL = (CYCLES_PER_SCANLINE * VBLANK_SCANLINES - VBLANK_KERNEL_TIMER_SET_IN_CYCLES - VBLANK_KERNEL_WAIT_LOOP) / 64
+	; like SLEEP in vcs.h but for clock counts rather than cycles
+	mac SLEEP_CLOCK_COUNTS
+.CLOCK_COUNTS		SET {1}
+		IF .CLOCK_COUNTS < 1
+				ECHO "MACRO ERROR: 'SLEEP_CLOCK_COUNTS': Duration must be > 0"
+				ERR
+		ENDIF
+    REPEAT .CLOCK_COUNTS / 6
+			SLEEP 2
+    REPEND
+	endm
+
+.CLOCK_COUNTS_PER_SCANLINE = 228
+.CLOCK_COUNTS_PER_CYCLE = 3
+.CYCLES_PER_SCANLINE = .CLOCK_COUNTS_PER_SCANLINE / .CLOCK_COUNTS_PER_CYCLE
+.VBLANK_KERNEL_TIMER_SET_IN_CYCLES = 5
+.VBLANK_KERNEL_WAIT_LOOP = 6
+.VBLANK_SCANLINES = 37	; 37 is the textbook value
+VBLANK_TIMER_VAL = (.CYCLES_PER_SCANLINE * .VBLANK_SCANLINES - .VBLANK_KERNEL_TIMER_SET_IN_CYCLES - .VBLANK_KERNEL_WAIT_LOOP) / 64
 
 	mac VSYNC_KERNEL
 	VERTICAL_SYNC
@@ -56,7 +77,29 @@ VBLANK_TIMER_VAL = (CYCLES_PER_SCANLINE * VBLANK_SCANLINES - VBLANK_KERNEL_TIMER
 	endm
 
 	mac VBLANK_KERNEL_WAIT
-vblank_loop
+.vblank_loop
 	LDA INTIM
-	BNE vblank_loop
+	BNE .vblank_loop
+	endm
+
+
+	mac VBLANK_KERNEL_DONE
+	; turn beam back on at beginning of horizontal line
+	STA WSYNC
+	STA VBLANK
+	endm
+
+
+	mac OVERSCAN_KERNEL_EMPTY
+.overscan_kernel
+	; wait for overscan
+	STA WSYNC
+	LDA	#2
+	STA VBLANK
+
+	LDX	#30			; 30 lines in overscan
+.overscan_loop
+	STA WSYNC
+	DEX
+	BNE .overscan_loop
 	endm

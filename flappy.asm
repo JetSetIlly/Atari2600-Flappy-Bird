@@ -6,8 +6,6 @@
 
 ; program constants
 BACKGROUND_COLOR		=		$85
-PLAYFIELD_COLOR			=		$50
-NUM_SCANLINES				=		$C0	 ; 192
 
 	; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT	=		$3
@@ -25,11 +23,14 @@ FLY_DIVE_START_FRAME		=		$FF
 FLY_UP_FRAMES						=		$4
 FLY_GLIDE_FRAMES				=		FLY_UP_FRAMES + $3
 
-	; number of scanlines bird sprite should fly up per frame
-CLIMB_RATE					=		$4
+	; speed of obstacles (speed of flight)
+OBSTACLE_SPEED = $10
 
-BIRD_POS_INIT				=		$BF
-FLY_FRAME_INIT			=		FLY_DIVE_START_FRAME
+	; number of scanlines bird sprite should fly up per frame
+CLIMB_RATE			=		$4
+
+BIRD_POS_INIT		=		$BF
+FLY_FRAME_INIT	=		FLY_DIVE_START_FRAME
 
 
 ; data  - variables
@@ -40,6 +41,8 @@ FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negativ
 BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
+
+OBSTACLE_PAUSE			ds 1
 OBSTACLE_1_GAP_T		ds 1
 OBSTACLE_1_GAP_H		ds 1
 
@@ -60,6 +63,14 @@ SPRITE_LINES				.byte	7
 setup SUBROUTINE setup
 	CLEAN_START
 
+; END - SETUP
+; ----------------------------------
+
+
+; ----------------------------------
+; GAME INITIALISATION
+
+game_init SUBROUTINE game_init
 	; initialise variables
 	LDA #VBLANK_CYCLE_COUNT
 	STA VBLANK_CYCLE
@@ -80,10 +91,6 @@ setup SUBROUTINE setup
 	LDA #>SPRITES
 	STA SPRITE_ADDRESS+1
 
-	; speed of flight
-	LDA #16
-	STA HMM1
-
 	; obstacles
 	LDA #32		; width 
 	STA NUSIZ1
@@ -96,9 +103,47 @@ setup SUBROUTINE setup
 	LDA #BACKGROUND_COLOR
 	STA	COLUBK
 
-	JMP game
+.position_elements
+	; we only need to position elements once. we use the very first frame of the game sequence to do this.
 
-; END - SETUP
+	; make sure beam is off
+	LDA	#2
+	STA VBLANK
+
+	; reset sprite objects to leftmost of the screen
+	; we could use the IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP macro
+	; but resettting anywhere in the horizontal blank will have the
+	; same effect
+	STA RESP0
+	STA RESP1
+	STA RESBL
+
+	; draw ball
+.draw_ball
+	STA ENABL
+	LDA #$21
+	STA HMBL
+	STA WSYNC
+	STA HMOVE
+
+	; place obstacle 1 (missile 1) at right most screen edge
+	IDLE_WSYNC_TO_VISIBLE_SCREEN_RIGHT
+	STA RESM1
+
+	; the ball horizontal movement was just for fine tuning the backstop
+	; reset all horizontal before setting the speed of flight (which will persist
+	; throughout the game)
+	; note that we need to wait at least 24 machine cycles since HMOVE
+	; or the motion will not have occurred
+	STA HMCLR
+	
+	; speed of flight
+	LDA #OBSTACLE_SPEED
+	STA HMM1
+	LDA #$0
+	STA OBSTACLE_PAUSE
+
+; END - GAME INITIALISATION
 ; ----------------------------------
 
 
@@ -107,45 +152,63 @@ setup SUBROUTINE setup
 
 game SUBROUTINE game
 
-vertical_loop
+.vertical_loop
 	VSYNC_KERNEL
 	
 ; ----------------------------------
-; VBLANK KERNEL
+; > VBLANK KERNEL
 
 	; frame triage - cycle through vblank kernels every VBLANK_CYCLE frames
 	LDX VBLANK_CYCLE
 	CPX #VBLANK_CYCLE_SPRITE
-	BEQ frame_player_sprite
+	BEQ .frame_player_sprite
 	CPX #VBLANK_CYCLE_PFIELD
-	BEQ frame_obstacles
+	BEQ .frame_obstacles
 	; fall through 
-
 
 	; -------------
 	; FRAME - SPARE
 	DEX
 	STX VBLANK_CYCLE
-	JMP end_frame_triage
+	JMP .end_frame_triage
 	; END - FRAME - SPARE
 	; -------------
 
-
 	; -------------
 	; FRAME - OBSTACLES
-frame_obstacles
+.frame_obstacles
 	DEX
 	STX VBLANK_CYCLE
 
 	; check collisions
+	BIT CXM1FB
+	BVS .reset_obstacle_1
+
+	LDA #$0
+	STA OBSTACLE_PAUSE
+
 	BIT CXM1P
-	BMI bird_collision
+	BMI .bird_collision
 
+	JMP .end_frame_triage
+
+.reset_obstacle_1
 	STA CXCLR
-	JMP end_frame_triage
+	LDA OBSTACLE_PAUSE
+	BNE .obstacle_reset_done
+	LDA OBSTACLE_1_GAP_T
+	CLC
+	ADC #$8
+	STA OBSTACLE_1_GAP_T
+	LDA #$1
+	STA OBSTACLE_PAUSE
 
-bird_collision
+.obstacle_reset_done
+	JMP .end_frame_triage
+
+.bird_collision
 	; TODO: better collision handling
+	STA CXCLR
 	BRK
 
 	; END - FRAME - OBSTACLES
@@ -154,18 +217,18 @@ bird_collision
 
 	; -------------
 	; FRAME - PLAYER SPRITE
-frame_player_sprite
+.frame_player_sprite
 	; reset vblank cycle
 	LDX #VBLANK_CYCLE_COUNT
 	STX VBLANK_CYCLE
 
 	; check fire button
 	LDA INPT4
-	BMI continue_anim
+	BMI .continue_anim
 
 	; do nothing if fire is being held
 	LDX FIRE_HELD
-	BPL continue_anim
+	BPL .continue_anim
 
 	; start new fly animation
 	LDA #FLY_CLIMB_START_FRAME
@@ -174,29 +237,27 @@ frame_player_sprite
 	; flip sprite
 	LDA SPRITE_ADDRESS
 	CMP #<SPRITE_WINGS_DOWN
-	BEQ flip_sprite_use_flat
+	BEQ .flip_sprite_use_flat
 
 	LDA #<SPRITE_WINGS_DOWN
 	STA SPRITE_ADDRESS
-	JMP flip_sprite_end
+	JMP .flip_sprite_end
 
-flip_sprite_use_flat
+.flip_sprite_use_flat
 	LDA #<SPRITE_WINGS_FLAT
 	STA SPRITE_ADDRESS
-flip_sprite_end
+.flip_sprite_end
 
 
-continue_anim
+.continue_anim
 	STA FIRE_HELD
 	LDA FLY_FRAME
-	BMI fly_down
-	; fall through to do_anim unless fly_frame is 0
+	BMI .fly_down
 
-do_anim
 	; have we been flying up for more than FLY_UP_FRAMES frames ...
 	LDA FLY_FRAME
 	CMP #FLY_UP_FRAMES
-	BPL glide_test
+	BPL .glide_test
 
 	; ... not yet, so fly up
 	INC FLY_FRAME
@@ -206,34 +267,34 @@ do_anim
 
 	; check to see if we've reached top of flying area (ie. top of screen)
 	CMP #BIRD_POS_HIGH
-	BCS fly_highest
+	BCS .fly_highest
 
 	; done with flying up
 	STA BIRD_POS
-	JMP fly_end
+	JMP .fly_end
 
-fly_highest
+.fly_highest
 	LDA #BIRD_POS_HIGH
 	STA BIRD_POS
-	JMP fly_end
+	JMP .fly_end
 
-glide_test
+.glide_test
 	; have we been flying/gliding for more than FLY_GLIDE_FRAMES frames ...
 	CMP #FLY_GLIDE_FRAMES
-	BPL end_glide
+	BPL .end_glide
 
 	; make sure we're using the flat wing sprite when gliding
 	LDA #<SPRITE_WINGS_FLAT
 	STA SPRITE_ADDRESS
 
 	INC FLY_FRAME
-	JMP fly_end
+	JMP .fly_end
 
-end_glide
+.end_glide
 	LDA #FLY_DIVE_START_FRAME
 	STA FLY_FRAME
 
-fly_down
+.fly_down
 	; use fly down sprite
 	LDA #<SPRITE_WINGS_UP
 	STA SPRITE_ADDRESS
@@ -243,33 +304,32 @@ fly_down
 	ADC FLY_FRAME
 
 	; check to see FALL RATE will take BIRD_POS below zero ...
-	BCC	fly_lowest
+	BCC	.fly_lowest
 
 	; ... actually, we don't want BIRD_POS to fall below BIRD_POS_LOW
 	CMP #BIRD_POS_LOW
-	BCC	fly_lowest
+	BCC	.fly_lowest
 
 	STA BIRD_POS
 	DEC FLY_FRAME
-	JMP fly_end
+	JMP .fly_end
 
-fly_lowest
+.fly_lowest
 	; TODO: test for game mode (easy/hard) and allow a "walking" bird sprite or cause death accordingly
 	LDA #BIRD_POS_LOW
 	STA BIRD_POS
 
-fly_end
+.fly_end
 	; fall through to end_frame_triage
 
 	; END - FRAME - PLAYER SPRITE
 	; -------------
 
-
-end_frame_triage
+.end_frame_triage
 	; setup display kernel
 
 	; X register will now contain the current scanline for the duration of the display kernal
-	LDX	#NUM_SCANLINES
+	LDX	#VISIBLE_SCANLINES
 
 	; preload Y register with number of sprite lines
 	LDY SPRITE_LINES
@@ -278,20 +338,12 @@ end_frame_triage
 	STA WSYNC
 	STA HMOVE
 
-	; position 
+	; wait for end of vblank kernel 
 	VBLANK_KERNEL_WAIT
-
-	; TODO: we only need to do this once at game start - implement a setup kernel
-	IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP
-	STA RESP0
-
-	STA VBLANK				; turn beam back on (writing zero)
-
-; END - VBLANK KERNEL
-; ----------------------------------
+	VBLANK_KERNEL_DONE
 
 ; ----------------------------------
-; DISPLAY KERNEL
+; > DISPLAY KERNEL
 
 ; X register contain the current scanline for the duration of the display kernal
 
@@ -299,38 +351,35 @@ end_frame_triage
 ; note: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; to set the sprite line
 
-display_loop
-	; wait for beginning of horizontal scan
-	STA WSYNC
-
+.display_loop
 	; interlace sprite and obstacle drawing
 	TXA												; 2
 	AND #%00000001						; 2
-	BEQ do_obstacle						; 2/3
+	BEQ .do_obstacle					; 2/3
 
 ; -----------------------
-do_sprite
+.do_sprite
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPX BIRD_POS							; 2
-	BCS sprite_done						; 2/3
+	BCS .sprite_done					; 2/3
 
 	TYA												; 2
-	BMI sprite_done						; 2/3
-	BEQ	sprite_off						; 2/3
+	BMI .sprite_done					; 2/3
+	BEQ	.sprite_off						; 2/3
 
 	LDA (SPRITE_ADDRESS),Y		; 5
 	; idle cycles to prevent writing to GRP0 mid-colour-cycle
 	NOP												; 2
 	STA GRP0									; 3
 	DEY												; 2
-	JMP sprite_done						; 3
+	JMP .sprite_done					; 3
 
-sprite_off
+.sprite_off
 	STY GRP0									; 3
 	DEY												; 2
 
-sprite_done
-	JMP next_scanline
+.sprite_done
+	JMP .next_scanline
 
 ; maximum 76 cycles between STA WSYNC 
 ; up to this point (including interlace test):
@@ -343,60 +392,39 @@ sprite_done
 ; (5 cycles used at end of display_loop)
 ; -----------------------
 
-
 ; -----------------------
-do_obstacle
+.do_obstacle
 	TXA
 	CMP OBSTACLE_1_GAP_T
-	BMI obstacle_on
+	BMI .obstacle_on
 	SEC
 	SBC OBSTACLE_1_GAP_T
 	CMP OBSTACLE_1_GAP_H
-	BMI obstacle_off
+	BMI .obstacle_off
 
-obstacle_on
+.obstacle_on
 	LDA #2
 	STA ENAM1
-	JMP obstacle_done
+	JMP .obstacle_done
 
-obstacle_off
+.obstacle_off
 	LDA #0
 	STA ENAM1
 
-obstacle_done
+.obstacle_done
 ; -----------------------
 
-next_scanline
-	DEX
-	BNE display_loop
-
-; END - DISPLAY KERNEL
-; ----------------------------------
-
-
-; ----------------------------------
-; OVERSCAN KERNEL
-
-overscan_kernel
-
-	; wait for overscan
-	STA WSYNC
-	LDA	#2
-	STA VBLANK
-
-	LDX	#30			; 30 lines in overscan
-overscan_loop
-
-	; TODO custom overscan kernel
-
+.next_scanline
 	STA WSYNC
 	DEX
-	BNE overscan_loop
+	BNE .display_loop
 
-; END - OVERSCAN KERNEL
+
 ; ----------------------------------
+; > OVERSCAN KERNEL
 
-	JMP vertical_loop
+	OVERSCAN_KERNEL_EMPTY
+	JMP .vertical_loop
 
 ; END - GAME
 ; ----------------------------------
@@ -404,6 +432,8 @@ overscan_loop
 
 ; ----------------------------------
 ; MACHINE INITIALISATION 
+
+initialisation SUBROUTINE initialisation
 
 	ORG $FFFA
 	.word setup		; NMI
