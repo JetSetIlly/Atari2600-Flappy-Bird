@@ -42,10 +42,12 @@ BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
+OBSTACLE_0_GAP_T		ds 1
 OBSTACLE_1_GAP_T		ds 1
-OBSTACLE_1_GAP_H		ds 1
+OBSTACLE_GAP_HEIGHT	ds 1
 
 OBSTACLE_PAUSE			ds 1	; flag - pause collision detection for obstacles if != 0
+OBSTACLE_TOP_PT			ds 1	; points to OBSTACLE_TOPS
 
 ; sprite data
 	SEG
@@ -56,6 +58,9 @@ SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
 SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
 SPRITE_LINES				.byte	7
 ; note: first FF in each sprite is a boundry byte - value is unimportant
+
+OBSTACLE_TOPS				HEX 20 30 40 50 60 70 80 90
+OBSTACLE_TOP_MAX = 7
 
 
 ; ----------------------------------
@@ -94,11 +99,22 @@ game_init SUBROUTINE game_init
 
 	; obstacles
 	LDA #32		; width 
+	STA NUSIZ0
 	STA NUSIZ1
-	LDA #$50
+
+	LDY #$3
+	STY OBSTACLE_TOP_PT
+	LDA OBSTACLE_TOPS,Y
 	STA OBSTACLE_1_GAP_T
+
+	LDY #$5
+	STY OBSTACLE_TOP_PT
+	LDA OBSTACLE_TOPS,Y
+	STA OBSTACLE_0_GAP_T
+
+	; TODO: gap width depending on difficulty setting
 	LDA #$20
-	STA OBSTACLE_1_GAP_H
+	STA OBSTACLE_GAP_HEIGHT
 
 	; set background colour
 	LDA #BACKGROUND_COLOR
@@ -106,6 +122,7 @@ game_init SUBROUTINE game_init
 
 .position_elements
 	; we only need to position elements once. we use the very first frame of the game sequence to do this.
+	STA WSYNC
 
 	; make sure beam is off
 	LDA	#2
@@ -131,6 +148,9 @@ game_init SUBROUTINE game_init
 	IDLE_WSYNC_TO_VISIBLE_SCREEN_RIGHT
 	STA RESM1
 
+	IDLE_WSYNC_TO_VISIBLE_SCREEN_MIDDLE
+	STA RESM0
+
 	; the ball horizontal movement was just for fine tuning the backstop
 	; reset all horizontal before setting the speed of flight (which will persist
 	; throughout the game)
@@ -140,6 +160,7 @@ game_init SUBROUTINE game_init
 	
 	; speed of flight
 	LDA #OBSTACLE_SPEED
+	STA HMM0
 	STA HMM1
 
 	; allow collision detection
@@ -184,6 +205,8 @@ game SUBROUTINE game
 	STX VBLANK_CYCLE
 
 	; check collisions
+	BIT CXM0FB
+	BVS .reset_obstacle_0
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
@@ -195,16 +218,32 @@ game SUBROUTINE game
 
 	BIT CXM1P
 	BMI .bird_collision
+	BIT CXM0P
+	BVS .bird_collision
 
 	JMP .end_frame_triage
 
-.reset_obstacle_1
-	STA CXCLR
+; TODO: make reset_obstacle_0 and reset_obstacle_1 more efficient
+.reset_obstacle_0
 	LDA OBSTACLE_PAUSE
 	BNE .obstacle_reset_done
-	LDA OBSTACLE_1_GAP_T
-	CLC
-	ADC #$8
+
+	; get new top for obstacle 0
+	LDY OBSTACLE_TOP_PT
+	LDA OBSTACLE_TOPS,Y
+	STA OBSTACLE_0_GAP_T
+
+	; pause collision detection until a non-collision frame has occurred
+	LDA #$1
+	STA OBSTACLE_PAUSE
+
+.reset_obstacle_1
+	LDA OBSTACLE_PAUSE
+	BNE .obstacle_reset_done
+
+	; get new top for obstacle 1
+	LDY OBSTACLE_TOP_PT
+	LDA OBSTACLE_TOPS,Y
 	STA OBSTACLE_1_GAP_T
 
 	; pause collision detection until a non-collision frame has occurred
@@ -216,7 +255,6 @@ game SUBROUTINE game
 
 .bird_collision
 	; TODO: better collision handling
-	STA CXCLR
 	BRK
 
 	; END - FRAME - OBSTACLES
@@ -233,6 +271,14 @@ game SUBROUTINE game
 	; check fire button
 	LDA INPT4
 	BMI .continue_anim
+
+	LDY OBSTACLE_TOP_PT
+	INY
+	CPY #OBSTACLE_TOP_MAX
+	BCC .ZZZ
+	LDY #$0
+.ZZZ
+	STY OBSTACLE_TOP_PT
 
 	; do nothing if fire is being held
 	LDX FIRE_HELD
@@ -334,6 +380,9 @@ game SUBROUTINE game
 	; -------------
 
 .end_frame_triage
+	; reset collision flags every frame - we have the time and can save a bit of ROM space
+	STA CXCLR
+
 	; setup display kernel
 
 	; X register will now contain the current scanline for the duration of the display kernal
@@ -363,7 +412,7 @@ game SUBROUTINE game
 	; interlace sprite and obstacle drawing
 	TXA												; 2
 	AND #%00000001						; 2
-	BEQ .do_obstacle					; 2/3
+	BEQ .do_obstacle_0				; 2/3
 
 ; -----------------------
 .do_sprite
@@ -401,25 +450,43 @@ game SUBROUTINE game
 ; -----------------------
 
 ; -----------------------
-.do_obstacle
+.do_obstacle_0
+	TXA
+	CMP OBSTACLE_0_GAP_T
+	BMI .obstacle_0_on
+	SEC
+	SBC OBSTACLE_0_GAP_T
+	CMP OBSTACLE_GAP_HEIGHT
+	BMI .obstacle_0_off
+
+.obstacle_0_on
+	LDA #2
+	STA ENAM0
+	JMP .do_obstacle_1
+
+.obstacle_0_off
+	LDA #0
+	STA ENAM0
+
+.do_obstacle_1
 	TXA
 	CMP OBSTACLE_1_GAP_T
-	BMI .obstacle_on
+	BMI .obstacle_1_on
 	SEC
 	SBC OBSTACLE_1_GAP_T
-	CMP OBSTACLE_1_GAP_H
-	BMI .obstacle_off
+	CMP OBSTACLE_GAP_HEIGHT
+	BMI .obstacle_1_off
 
-.obstacle_on
+.obstacle_1_on
 	LDA #2
 	STA ENAM1
-	JMP .obstacle_done
+	JMP .obstacles_done
 
-.obstacle_off
+.obstacle_1_off
 	LDA #0
 	STA ENAM1
 
-.obstacle_done
+.obstacles_done
 ; -----------------------
 
 .next_scanline
