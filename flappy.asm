@@ -4,33 +4,37 @@
 	include macro.h
 	include vcs_extra.h
 
+; tunables
+
+; TODO: alter these according to console difficulty setting
+OBSTACLE_SPEED		= $10
+CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
+OBSTACLE_WIDTH		= $20
+OBSTACLE_WINDOW		= $20
+
+
 ; program constants
-BACKGROUND_COLOR		=		$85
+
+BACKGROUND_COLOR	=	$85
 
 	; how often (in frames) each vblank kernel should run
-VBLANK_CYCLE_COUNT	=		$3
-VBLANK_CYCLE_SPRITE =		$1
-VBLANK_CYCLE_PFIELD	=		$2
-VBLANK_CYCLE_SPARE	=		$3
+FRAME_CYCLE_COUNT		=	$3
+FRAME_CYCLE_SPRITE	=	$1
+FRAME_CYCLE_PFIELD	=	$2
+FRAME_CYCLE_SPARE		=	$3
 
-	; screen boundries for bird sprite
-BIRD_POS_HIGH				=		$C0
-BIRD_POS_LOW				=		$10
+	; screen boundaries for bird sprite
+BIRD_HIGH	=		$C0
+BIRD_LOW	=		$10
 
 	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_CLIMB_START_FRAME		=		$0
-FLY_DIVE_START_FRAME		=		$FF
-FLY_UP_FRAMES						=		$4
-FLY_GLIDE_FRAMES				=		FLY_UP_FRAMES + $3
+FLY_CLIMB_START_FRAME	=		$0
+FLY_DIVE_START_FRAME	=		$FF
+FLY_UP_FRAMES					=		$4
+FLY_GLIDE_FRAMES			=		FLY_UP_FRAMES + $3
 
-	; speed of obstacles (speed of flight)
-OBSTACLE_SPEED = $10
-
-	; number of scanlines bird sprite should fly up per frame
-CLIMB_RATE			=		$4
-
-BIRD_POS_INIT		=		$BF
-FLY_FRAME_INIT	=		FLY_DIVE_START_FRAME
+BIRD_INIT				=	$BF
+FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
 
 
 ; data  - variables
@@ -38,20 +42,20 @@ FLY_FRAME_INIT	=		FLY_DIVE_START_FRAME
 	ORG $80			; start of 2600 RAM
 VBLANK_CYCLE				ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
-BIRD_POS						ds 1	; between BIRD_POS_HIGH and BIRD_POS_LOW
+BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
-OBSTACLE_0_GAP_T		ds 1
-OBSTACLE_1_GAP_T		ds 1
-OBSTACLE_GAP_HEIGHT	ds 1
+OBSTACLE_0						ds 1
+OBSTACLE_1						ds 1
+OBSTACLE_PAUSE				ds 1	; flag - pause collision detection for obstacles if != 0
+OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
 
-OBSTACLE_PAUSE			ds 1	; flag - pause collision detection for obstacles if != 0
-OBSTACLE_TOP_PT			ds 1	; points to OBSTACLE_TOPS
+; start of cart ROM
+	SEG
+	ORG $F000	
 
 ; sprite data
-	SEG
-	ORG $F000		; start of cart ROM
 SPRITES
 SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40 
 SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
@@ -59,8 +63,9 @@ SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
 SPRITE_LINES				.byte	7
 ; note: first FF in each sprite is a boundry byte - value is unimportant
 
+; table of obstacles
 OBSTACLE_TOPS				HEX 20 30 40 50 60 70 80 90
-OBSTACLE_TOP_MAX = 7
+OBSTACLE_TOP_MAX		= 7
 
 
 ; ----------------------------------
@@ -77,14 +82,13 @@ setup SUBROUTINE setup
 ; GAME INITIALISATION
 
 game_init SUBROUTINE game_init
-	; initialise variables
-	LDA #VBLANK_CYCLE_COUNT
+	LDA #FRAME_CYCLE_COUNT
 	STA VBLANK_CYCLE
 
 	LDA INPT4
 	STA FIRE_HELD
 
-	LDA #BIRD_POS_INIT
+	LDA #BIRD_INIT
 	STA BIRD_POS
 
 	LDA #FLY_FRAME_INIT
@@ -97,24 +101,20 @@ game_init SUBROUTINE game_init
 	LDA #>SPRITES
 	STA SPRITE_ADDRESS+1
 
-	; obstacles
-	LDA #32		; width 
+	LDA #OBSTACLE_WIDTH
 	STA NUSIZ0
 	STA NUSIZ1
 
+	; beginning obstacles
 	LDY #$3
-	STY OBSTACLE_TOP_PT
+	STY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_1_GAP_T
+	STA OBSTACLE_1
 
 	LDY #$5
-	STY OBSTACLE_TOP_PT
+	STY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_0_GAP_T
-
-	; TODO: gap width depending on difficulty setting
-	LDA #$20
-	STA OBSTACLE_GAP_HEIGHT
+	STA OBSTACLE_0
 
 	; set background colour
 	LDA #BACKGROUND_COLOR
@@ -177,16 +177,17 @@ game_init SUBROUTINE game_init
 game SUBROUTINE game
 
 .vertical_loop
-	VSYNC_KERNEL
+	VSYNC_KERNEL_BASIC
 	
 ; ----------------------------------
 ; > VBLANK KERNEL
+	VBLANK_KERNEL_SETUP
 
 	; frame triage - cycle through vblank kernels every VBLANK_CYCLE frames
 	LDX VBLANK_CYCLE
-	CPX #VBLANK_CYCLE_SPRITE
+	CPX #FRAME_CYCLE_SPRITE
 	BEQ .frame_player_sprite
-	CPX #VBLANK_CYCLE_PFIELD
+	CPX #FRAME_CYCLE_PFIELD
 	BEQ .frame_obstacles
 	; fall through 
 
@@ -210,9 +211,9 @@ game SUBROUTINE game
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
-	; no obsctacle collision for this frame so re-allow collision detection
-	; in time for next frame. note: we do this so that the reset obstacle routines
-	; don't run more than necessary
+	; no obsctacle collision this frame so we only need to re-allow collision detection
+	; in time for next frame. rather than do that here (and waste cycles) we'll do it in
+	; the overscan kernel
 	LDA #$0
 	STA OBSTACLE_PAUSE
 
@@ -229,9 +230,9 @@ game SUBROUTINE game
 	BNE .obstacle_reset_done
 
 	; get new top for obstacle 0
-	LDY OBSTACLE_TOP_PT
+	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_0_GAP_T
+	STA OBSTACLE_0
 
 	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
@@ -242,9 +243,9 @@ game SUBROUTINE game
 	BNE .obstacle_reset_done
 
 	; get new top for obstacle 1
-	LDY OBSTACLE_TOP_PT
+	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_1_GAP_T
+	STA OBSTACLE_1
 
 	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
@@ -265,20 +266,16 @@ game SUBROUTINE game
 	; FRAME - PLAYER SPRITE
 .frame_player_sprite
 	; reset vblank cycle
-	LDX #VBLANK_CYCLE_COUNT
+	LDX #FRAME_CYCLE_COUNT
 	STX VBLANK_CYCLE
 
 	; check fire button
 	LDA INPT4
 	BMI .continue_anim
 
-	LDY OBSTACLE_TOP_PT
-	INY
-	CPY #OBSTACLE_TOP_MAX
-	BCC .ZZZ
-	LDY #$0
-.ZZZ
-	STY OBSTACLE_TOP_PT
+	; change next obstacle - we won't be using this until next frame so
+	; we've deferred limiting  the pointer to the overscan kernel
+	INC OBSTACLE_TOP_POINTER
 
 	; do nothing if fire is being held
 	LDX FIRE_HELD
@@ -320,7 +317,7 @@ game SUBROUTINE game
 	ADC #CLIMB_RATE
 
 	; check to see if we've reached top of flying area (ie. top of screen)
-	CMP #BIRD_POS_HIGH
+	CMP #BIRD_HIGH
 	BCS .fly_highest
 
 	; done with flying up
@@ -328,7 +325,7 @@ game SUBROUTINE game
 	JMP .fly_end
 
 .fly_highest
-	LDA #BIRD_POS_HIGH
+	LDA #BIRD_HIGH
 	STA BIRD_POS
 	JMP .fly_end
 
@@ -360,8 +357,8 @@ game SUBROUTINE game
 	; check to see FALL RATE will take BIRD_POS below zero ...
 	BCC	.fly_lowest
 
-	; ... actually, we don't want BIRD_POS to fall below BIRD_POS_LOW
-	CMP #BIRD_POS_LOW
+	; ... actually, we don't want BIRD_POS to fall below BIRD_LOW
+	CMP #BIRD_LOW
 	BCC	.fly_lowest
 
 	STA BIRD_POS
@@ -370,7 +367,7 @@ game SUBROUTINE game
 
 .fly_lowest
 	; TODO: test for game mode (easy/hard) and allow a "walking" bird sprite or cause death accordingly
-	LDA #BIRD_POS_LOW
+	LDA #BIRD_LOW
 	STA BIRD_POS
 
 .fly_end
@@ -396,8 +393,7 @@ game SUBROUTINE game
 	STA HMOVE
 
 	; wait for end of vblank kernel 
-	VBLANK_KERNEL_WAIT
-	VBLANK_KERNEL_DONE
+	VBLANK_KERNEL_END
 
 ; ----------------------------------
 ; > DISPLAY KERNEL
@@ -452,11 +448,11 @@ game SUBROUTINE game
 ; -----------------------
 .do_obstacle_0
 	TXA
-	CMP OBSTACLE_0_GAP_T
+	CMP OBSTACLE_0
 	BMI .obstacle_0_on
 	SEC
-	SBC OBSTACLE_0_GAP_T
-	CMP OBSTACLE_GAP_HEIGHT
+	SBC OBSTACLE_0
+	CMP #OBSTACLE_WINDOW
 	BMI .obstacle_0_off
 
 .obstacle_0_on
@@ -470,11 +466,11 @@ game SUBROUTINE game
 
 .do_obstacle_1
 	TXA
-	CMP OBSTACLE_1_GAP_T
+	CMP OBSTACLE_1
 	BMI .obstacle_1_on
 	SEC
-	SBC OBSTACLE_1_GAP_T
-	CMP OBSTACLE_GAP_HEIGHT
+	SBC OBSTACLE_1
+	CMP #OBSTACLE_WINDOW
 	BMI .obstacle_1_off
 
 .obstacle_1_on
@@ -498,7 +494,19 @@ game SUBROUTINE game
 ; ----------------------------------
 ; > OVERSCAN KERNEL
 
-	OVERSCAN_KERNEL_EMPTY
+.overscan_kernel
+	OVERSCAN_KERNEL_SETUP
+
+	; limit OBSTACLE_TOP_POINTER to maximum value
+	LDY OBSTACLE_TOP_POINTER
+	CPY #OBSTACLE_TOP_MAX
+	BCC .limit_obstacle_top
+	LDY #$0
+.limit_obstacle_top
+	STY OBSTACLE_TOP_POINTER
+
+	OVERSCAN_KERNEL_END
+
 	JMP .vertical_loop
 
 ; END - GAME
