@@ -211,9 +211,7 @@ game SUBROUTINE game
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
-	; no obsctacle collision this frame so we only need to re-allow collision detection
-	; in time for next frame. rather than do that here (and waste cycles) we'll do it in
-	; the overscan kernel
+	; turn obstacle collision back on (after a frame without collision)
 	LDA #$0
 	STA OBSTACLE_PAUSE
 
