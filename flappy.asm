@@ -40,7 +40,7 @@ FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
 ; data  - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
-VBLANK_CYCLE				ds 1
+FRAME_CYCLE					ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
@@ -50,7 +50,6 @@ OBSTACLE_0_T					ds 1
 OBSTACLE_0_B					ds 1
 OBSTACLE_1_T					ds 1
 OBSTACLE_1_B					ds 1
-OBSTACLE_PAUSE				ds 1	; flag - pause collision detection for obstacles if != 0
 OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
 
 ; start of cart ROM
@@ -69,7 +68,6 @@ SPRITE_LINES				.byte	7
 OBSTACLE_TOPS				HEX 20 30 40 50 60 70 80 90
 OBSTACLE_TOP_MAX		= 7
 
-
 ; ----------------------------------
 ; SETUP
 
@@ -85,7 +83,7 @@ setup SUBROUTINE setup
 
 game_init SUBROUTINE game_init
 	LDA #FRAME_CYCLE_COUNT
-	STA VBLANK_CYCLE
+	STA FRAME_CYCLE
 
 	LDA INPT4
 	STA FIRE_HELD
@@ -171,10 +169,6 @@ game_init SUBROUTINE game_init
 	STA HMM0
 	STA HMM1
 
-	; allow collision detection
-	LDA #$0
-	STA OBSTACLE_PAUSE
-
 ; END - GAME INITIALISATION
 ; ----------------------------------
 
@@ -191,8 +185,8 @@ game SUBROUTINE game
 ; > VBLANK KERNEL
 	VBLANK_KERNEL_SETUP
 
-	; frame triage - cycle through vblank kernels every VBLANK_CYCLE frames
-	LDX VBLANK_CYCLE
+	; frame triage - cycle through vblank kernels every FRAME_CYCLE frames
+	LDX FRAME_CYCLE
 	CPX #FRAME_CYCLE_SPRITE
 	BEQ .frame_player_sprite
 	CPX #FRAME_CYCLE_PFIELD
@@ -201,8 +195,6 @@ game SUBROUTINE game
 
 	; -------------
 	; FRAME - SPARE
-	DEX
-	STX VBLANK_CYCLE
 	JMP .end_frame_triage
 	; END - FRAME - SPARE
 	; -------------
@@ -210,20 +202,13 @@ game SUBROUTINE game
 	; -------------
 	; FRAME - OBSTACLES
 .frame_obstacles
-	DEX
-	STX VBLANK_CYCLE
-
 	; check collisions
 	BIT CXM0FB
 	BVS .reset_obstacle_0
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
-	; turn obstacle collision back on (after a frame without collision)
-	LDA #$0
-	STA OBSTACLE_PAUSE
-
-	; obstacle collision is unpaused - reset speed and size of both obstacles (missiles)
+	; a frame has occurred without collision - reset speed and size of both obstacles (missiles)
 	LDA #OBSTACLE_SPEED
 	STA HMM0
 	STA HMM1
@@ -241,9 +226,6 @@ game SUBROUTINE game
 
 ; TODO: make reset_obstacle_0 and reset_obstacle_1 more efficient
 .reset_obstacle_0
-	LDA OBSTACLE_PAUSE
-	BNE .obstacle_reset_done
-
 	; get new top for obstacle 0
 	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
@@ -252,9 +234,7 @@ game SUBROUTINE game
 	ADC #OBSTACLE_WINDOW
 	STA OBSTACLE_0_B
 
-	; pause collision detection until a non-collision frame has occurred
-	LDA #$1
-	STA OBSTACLE_PAUSE
+	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_DISAPPEAR_SPEED
 	STA HMM0
 	LDA #0
@@ -262,9 +242,6 @@ game SUBROUTINE game
 	JMP .obstacle_reset_done
 
 .reset_obstacle_1
-	LDA OBSTACLE_PAUSE
-	BNE .obstacle_reset_done
-
 	; get new top for obstacle 1
 	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
@@ -273,9 +250,7 @@ game SUBROUTINE game
 	ADC #OBSTACLE_WINDOW
 	STA OBSTACLE_1_B
 
-	; pause collision detection until a non-collision frame has occurred
-	LDA #$1
-	STA OBSTACLE_PAUSE
+	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_DISAPPEAR_SPEED
 	STA HMM1
 	LDA #0
@@ -295,10 +270,6 @@ game SUBROUTINE game
 	; -------------
 	; FRAME - PLAYER SPRITE
 .frame_player_sprite
-	; reset vblank cycle
-	LDX #FRAME_CYCLE_COUNT
-	STX VBLANK_CYCLE
-
 	; check fire button
 	LDA INPT4
 	BMI .continue_anim
@@ -407,9 +378,6 @@ game SUBROUTINE game
 	; -------------
 
 .end_frame_triage
-	; reset collision flags every frame - we have the time and can save a bit of ROM space
-	STA CXCLR
-
 	; setup display kernel
 
 	; X register will now contain the current scanline for the duration of the display kernal
@@ -438,7 +406,7 @@ game SUBROUTINE game
 	; interlace sprite and obstacle drawing
 	TXA												; 2
 	AND #%00000001						; 2
-	BEQ .do_obstacle_0 				; 2/3
+	BEQ .do_obstacle_0				; 2/3
 
 ; -----------------------
 .do_sprite
@@ -478,10 +446,9 @@ game SUBROUTINE game
 
 ; -----------------------
 .do_obstacle_0
-	TXA												; 2
-	CMP OBSTACLE_0_T					; 3
+	CPX OBSTACLE_0_T					; 3
 	BCC .obstacle_0_on				; 2/3
-	CMP OBSTACLE_0_B					; 3
+	CPX OBSTACLE_0_B					; 3
 	BCC .obstacle_0_off				; 2/3
 	JMP	.do_obstacle_1				; 3
 
@@ -495,10 +462,9 @@ game SUBROUTINE game
 	STA ENAM0									; 3
 
 .do_obstacle_1
-	TXA												; 2
-	CMP OBSTACLE_1_T					; 3
+	CPX OBSTACLE_1_T					; 3
 	BCC .obstacle_1_on				; 2/3
-	CMP OBSTACLE_1_B					; 3
+	CPX OBSTACLE_1_B					; 3
 	BCC .obstacle_1_off				; 2/3
 	JMP	.obstacles_done				; 3
 
@@ -523,12 +489,22 @@ game SUBROUTINE game
 	DEX
 	BNE .display_loop
 
-
 ; ----------------------------------
 ; > OVERSCAN KERNEL
 
 .overscan_kernel
 	OVERSCAN_KERNEL_SETUP
+
+	; reset collision flags every frame
+	STA CXCLR
+
+	; update frame cycle
+	LDX FRAME_CYCLE
+	DEX
+	BNE .store_frame_cycle
+	LDX #FRAME_CYCLE_COUNT
+.store_frame_cycle
+	STX FRAME_CYCLE
 
 	; limit OBSTACLE_TOP_POINTER to maximum value
 	LDY OBSTACLE_TOP_POINTER
