@@ -4,14 +4,14 @@
 	include macro.h
 	include vcs_extra.h
 
-; tunables
-
+; tunables 
 ; TODO: alter these according to console difficulty setting
 OBSTACLE_SPEED		= $10
 CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
-OBSTACLE_WIDTH		= $20
+OBSTACLE_WIDTH		= $30
 OBSTACLE_WINDOW		= $20
 
+OBSTACLE_DISAPPEAR_SPEED = $20
 
 ; program constants
 
@@ -215,6 +215,15 @@ game SUBROUTINE game
 	LDA #$0
 	STA OBSTACLE_PAUSE
 
+	; obstacle collision is unpaused - reset speed and size of both obstacles (missiles)
+	LDA #OBSTACLE_SPEED
+	STA HMM0
+	STA HMM1
+	LDA #OBSTACLE_WIDTH
+	STA NUSIZ0
+	STA NUSIZ1
+
+	; check bird collision
 	BIT CXM1P
 	BMI .bird_collision
 	BIT CXM0P
@@ -235,6 +244,11 @@ game SUBROUTINE game
 	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
 	STA OBSTACLE_PAUSE
+	LDA #OBSTACLE_DISAPPEAR_SPEED
+	STA HMM0
+	LDA #0
+	STA NUSIZ0
+	JMP .obstacle_reset_done
 
 .reset_obstacle_1
 	LDA OBSTACLE_PAUSE
@@ -248,6 +262,10 @@ game SUBROUTINE game
 	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
 	STA OBSTACLE_PAUSE
+	LDA #OBSTACLE_DISAPPEAR_SPEED
+	STA HMM1
+	LDA #0
+	STA NUSIZ1
 
 .obstacle_reset_done
 	JMP .end_frame_triage
@@ -406,7 +424,7 @@ game SUBROUTINE game
 	; interlace sprite and obstacle drawing
 	TXA												; 2
 	AND #%00000001						; 2
-	BEQ .do_obstacle_0				; 2/3
+	BEQ .do_obstacle_0 				; 2/3
 
 ; -----------------------
 .do_sprite
