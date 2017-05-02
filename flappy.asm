@@ -46,8 +46,10 @@ BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
-OBSTACLE_0						ds 1
-OBSTACLE_1						ds 1
+OBSTACLE_0_T					ds 1
+OBSTACLE_0_B					ds 1
+OBSTACLE_1_T					ds 1
+OBSTACLE_1_B					ds 1
 OBSTACLE_PAUSE				ds 1	; flag - pause collision detection for obstacles if != 0
 OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
 
@@ -109,12 +111,18 @@ game_init SUBROUTINE game_init
 	LDY #$3
 	STY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_1
+	STA OBSTACLE_0_T
+	CLC
+	ADC #OBSTACLE_WINDOW
+	STA OBSTACLE_0_B
 
 	LDY #$5
 	STY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_0
+	STA OBSTACLE_1_T
+	CLC
+	ADC #OBSTACLE_WINDOW
+	STA OBSTACLE_1_B
 
 	; set background colour
 	LDA #BACKGROUND_COLOR
@@ -239,7 +247,10 @@ game SUBROUTINE game
 	; get new top for obstacle 0
 	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_0
+	STA OBSTACLE_0_T
+	CLC
+	ADC #OBSTACLE_WINDOW
+	STA OBSTACLE_0_B
 
 	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
@@ -257,7 +268,10 @@ game SUBROUTINE game
 	; get new top for obstacle 1
 	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_1
+	STA OBSTACLE_1_T
+	CLC
+	ADC #OBSTACLE_WINDOW
+	STA OBSTACLE_1_B
 
 	; pause collision detection until a non-collision frame has occurred
 	LDA #$1
@@ -447,9 +461,6 @@ game SUBROUTINE game
 	STY GRP0									; 3
 	DEY												; 2
 
-.sprite_done
-	JMP .next_scanline
-
 ; maximum 76 cycles between STA WSYNC 
 ; up to this point (including interlace test):
 ;		30 - last sprite line drawn
@@ -459,46 +470,52 @@ game SUBROUTINE game
  
 ; 40 cycles safely available
 ; (5 cycles used at end of display_loop)
+
+.sprite_done
+	JMP .next_scanline
+
 ; -----------------------
 
 ; -----------------------
 .do_obstacle_0
-	TXA
-	CMP OBSTACLE_0
-	BMI .obstacle_0_on
-	SEC
-	SBC OBSTACLE_0
-	CMP #OBSTACLE_WINDOW
-	BMI .obstacle_0_off
+	TXA												; 2
+	CMP OBSTACLE_0_T					; 3
+	BCC .obstacle_0_on				; 2/3
+	CMP OBSTACLE_0_B					; 3
+	BCC .obstacle_0_off				; 2/3
+	JMP	.do_obstacle_1				; 3
 
 .obstacle_0_on
-	LDA #2
-	STA ENAM0
-	JMP .do_obstacle_1
+	LDA #2										; 2
+	STA ENAM0									; 3
+	JMP .do_obstacle_1				; 3
 
 .obstacle_0_off
-	LDA #0
-	STA ENAM0
+	LDA #0										; 2
+	STA ENAM0									; 3
 
 .do_obstacle_1
-	TXA
-	CMP OBSTACLE_1
-	BMI .obstacle_1_on
-	SEC
-	SBC OBSTACLE_1
-	CMP #OBSTACLE_WINDOW
-	BMI .obstacle_1_off
+	TXA												; 2
+	CMP OBSTACLE_1_T					; 3
+	BCC .obstacle_1_on				; 2/3
+	CMP OBSTACLE_1_B					; 3
+	BCC .obstacle_1_off				; 2/3
+	JMP	.obstacles_done				; 3
 
 .obstacle_1_on
-	LDA #2
-	STA ENAM1
-	JMP .obstacles_done
+	LDA #2										; 2
+	STA ENAM1									; 2
+	JMP .obstacles_done				; 3
 
 .obstacle_1_off
-	LDA #0
-	STA ENAM1
+	LDA #0										; 2
+	STA ENAM1									; 2
 
 .obstacles_done
+
+; maximum 76 cycles between STA WSYNC 
+; up to this point (including interlace test):
+;		obstacle 0 off / obstacle 1 off
 ; -----------------------
 
 .next_scanline
