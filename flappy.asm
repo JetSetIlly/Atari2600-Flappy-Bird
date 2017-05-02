@@ -378,6 +378,9 @@ game SUBROUTINE game
 	; -------------
 
 .end_frame_triage
+	; reset collision flags every frame
+	STA CXCLR
+
 	; setup display kernel
 
 	; X register will now contain the current scanline for the duration of the display kernal
@@ -494,9 +497,6 @@ game SUBROUTINE game
 
 .overscan_kernel
 	OVERSCAN_KERNEL_SETUP
-
-	; reset collision flags every frame
-	STA CXCLR
 
 	; update frame cycle
 	LDX FRAME_CYCLE
