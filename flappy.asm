@@ -6,12 +6,17 @@
 
 ; tunables 
 ; TODO: alter these according to console difficulty setting
+
 OBSTACLE_SPEED		= $10
-CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
 OBSTACLE_WIDTH		= $30
 OBSTACLE_WINDOW		= $20
 
+CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
+CLIMB_FRAMES			=	$5
+GLIDE_FRAMES			=	CLIMB_FRAMES + $3
+
 OBSTACLE_DISAPPEAR_SPEED = $20
+
 
 ; program constants
 
@@ -30,8 +35,6 @@ BIRD_LOW	=		$10
 	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_CLIMB_START_FRAME	=		$0
 FLY_DIVE_START_FRAME	=		$FF
-FLY_UP_FRAMES					=		$4
-FLY_GLIDE_FRAMES			=		FLY_UP_FRAMES + $3
 
 BIRD_INIT				=	$BF
 FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
@@ -43,7 +46,7 @@ FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
 FRAME_CYCLE					ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
-FLY_FRAME						ds 1	; <0 = dive; <= FLY_UP_FRAMES = climb; <= FLY_GLIDE_FRAMES = glide
+FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
 OBSTACLE_0_T					ds 1
@@ -51,6 +54,10 @@ OBSTACLE_0_B					ds 1
 OBSTACLE_1_T					ds 1
 OBSTACLE_1_B					ds 1
 OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
+
+; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
+OBSTACLE_0_DRAW				ds 1
+OBSTACLE_1_DRAW				ds 2
 
 ; start of cart ROM
 	SEG
@@ -306,9 +313,9 @@ game SUBROUTINE game
 	LDA FLY_FRAME
 	BMI .fly_down
 
-	; have we been flying up for more than FLY_UP_FRAMES frames ...
+	; have we been flying up for more than CLIMB_FRAMES frames ...
 	LDA FLY_FRAME
-	CMP #FLY_UP_FRAMES
+	CMP #CLIMB_FRAMES
 	BPL .glide_test
 
 	; ... not yet, so fly up
@@ -331,8 +338,8 @@ game SUBROUTINE game
 	JMP .fly_end
 
 .glide_test
-	; have we been flying/gliding for more than FLY_GLIDE_FRAMES frames ...
-	CMP #FLY_GLIDE_FRAMES
+	; have we been flying/gliding for more than GLIDE_FRAMES frames ...
+	CMP #GLIDE_FRAMES
 	BPL .end_glide
 
 	; make sure we're using the flat wing sprite when gliding
@@ -383,11 +390,22 @@ game SUBROUTINE game
 
 	; setup display kernel
 
+	; first scanline always contains the obstacles
+	; - whether or not the next scanline will contain the obstacle
+	; is decided in the display kernel, at the end of the preceeding scanline
+	LDA #$2
+	STA OBSTACLE_0_DRAW
+	STA OBSTACLE_1_DRAW
+
 	; X register will now contain the current scanline for the duration of the display kernal
 	LDX	#VISIBLE_SCANLINES
 
 	; preload Y register with number of sprite lines
 	LDY SPRITE_LINES
+
+	; we need the number of scanlines in the accumulator at the beginning of the .display_loop
+	; - saving precious cycles for the HBLANK
+	TXA
 
 	; set up horizontal movement
 	STA WSYNC
@@ -407,9 +425,23 @@ game SUBROUTINE game
 
 .display_loop
 	; interlace sprite and obstacle drawing
-	TXA												; 2
 	AND #%00000001						; 2
-	BEQ .do_obstacle_0				; 2/3
+	BEQ .do_sprite						; 2/3
+
+; -----------------------
+	LDA OBSTACLE_0_DRAW				; 3
+	STA ENAM0									; 3
+	LDA OBSTACLE_1_DRAW				; 3
+	STA ENAM1									; 3
+
+	; maximum 76 cycles between STA WSYNC 
+	; up to this point (including interlace test):
+	;  19 cycles
+	; (first iteration uses only 16 cycles)
+
+	JMP .pre_calc
+; -----------------------
+
 
 ; -----------------------
 .do_sprite
@@ -432,65 +464,66 @@ game SUBROUTINE game
 	STY GRP0									; 3
 	DEY												; 2
 
-; maximum 76 cycles between STA WSYNC 
-; up to this point (including interlace test):
-;		30 - last sprite line drawn
-;		31 - drawn sprite line
-;		15 - sprite has been completed
-;		11 - scan line above BIRD_POS
- 
-; 40 cycles safely available
-; (5 cycles used at end of display_loop)
+	; maximum 76 cycles between STA WSYNC 
+	; up to this point (including interlace test):
+	;		23 (19) - last sprite line drawn
+	;		27 (24) - drawn sprite line
+	;		15 (12) - scan line below BIRD_POS
+	;		12 (9) - scan line above BIRD_POS
+	; 49 cycles safely available
 
 .sprite_done
-	JMP .next_scanline
-
+	JMP .next_scanline				; 3
 ; -----------------------
 
-; -----------------------
+.pre_calc
+	; we dont' have time in the HBLANK to do all this comparing and branching
+	; so we "precalc" the results now in time for the next scanline
+	; we're using precious visible scanline cycles of course, but all the important
+	; "drawing" is done during the hblank and the first part of the visible screen
+
 .do_obstacle_0
 	CPX OBSTACLE_0_T					; 3
 	BCC .obstacle_0_on				; 2/3
 	CPX OBSTACLE_0_B					; 3
 	BCC .obstacle_0_off				; 2/3
-	JMP	.do_obstacle_1				; 3
 
 .obstacle_0_on
-	LDA #2										; 2
-	STA ENAM0									; 3
+	LDA #$2
+	STA OBSTACLE_0_DRAW
 	JMP .do_obstacle_1				; 3
 
 .obstacle_0_off
 	LDA #0										; 2
-	STA ENAM0									; 3
+	STA OBSTACLE_0_DRAW
 
 .do_obstacle_1
 	CPX OBSTACLE_1_T					; 3
 	BCC .obstacle_1_on				; 2/3
 	CPX OBSTACLE_1_B					; 3
 	BCC .obstacle_1_off				; 2/3
-	JMP	.obstacles_done				; 3
 
 .obstacle_1_on
-	LDA #2										; 2
-	STA ENAM1									; 2
+	LDA #$2
+	STA OBSTACLE_1_DRAW
 	JMP .obstacles_done				; 3
 
 .obstacle_1_off
 	LDA #0										; 2
-	STA ENAM1									; 2
+	STA OBSTACLE_1_DRAW
 
 .obstacles_done
 
-; maximum 76 cycles between STA WSYNC 
-; up to this point (including interlace test):
-;		obstacle 0 off / obstacle 1 off
-; -----------------------
-
 .next_scanline
-	STA WSYNC
-	DEX
-	BNE .display_loop
+	; we need the number of scanlines in the accumulator at the beginning of the .display_loop
+	; decrement and move transfer with TXA - saving precious cycles for the HBLANK
+	DEX												
+	TXA												
+
+	STA WSYNC									; 3
+
+	; status flags from DEX have survived so this branch is based on that
+	BNE .display_loop					; 2/3
 
 ; ----------------------------------
 ; > OVERSCAN KERNEL
