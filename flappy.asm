@@ -407,21 +407,11 @@ game SUBROUTINE game
 
 	; setup display kernel
 
-	; first scanline always contains the obstacles - the gaps in the obstacles are decided
-	; in the display kernel, at the _end_ of each of scanline, in time for the next scanline
-	LDA #$2
-	STA OBSTACLE_0_DRAW
-	STA OBSTACLE_1_DRAW
-
 	; preload Y register with number of sprite lines
 	LDY SPRITE_LINES
 
 	; X register will now contain the current scanline for the duration of the display kernal
 	LDX	#VISIBLE_SCANLINES
-
-	; we need the number of scanlines in the accumulator at the beginning of the .display_loop
-	; - saving precious cycles for the HBLANK
-	TXA
 
 	; set up horizontal movement
 	STA WSYNC
@@ -440,28 +430,11 @@ game SUBROUTINE game
 ; to set the sprite line
 
 .display_loop
-	; interlace sprite and obstacle drawing
-	; - accumulator should contain the current scanline
-	AND #%00000001						; 2
-	BEQ .do_sprite						; 2/3
 
 ; -----------------------
-	LDA OBSTACLE_0_DRAW				; 3
-	STA ENAM0									; 3
-	LDA OBSTACLE_1_DRAW				; 3
-	STA ENAM1									; 3
+.display_sprite
+	STA WSYNC									; 3
 
-	; maximum 76 cycles between STA WSYNC 
-	; up to this point (including interlace test):
-	;  19 cycles
-	; (first iteration uses only 16 cycles)
-
-	JMP .pre_calc
-; -----------------------
-
-
-; -----------------------
-.do_sprite
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPX BIRD_POS							; 2
 	BCS .sprite_done					; 2/3
@@ -471,9 +444,7 @@ game SUBROUTINE game
 	BEQ	.sprite_off						; 2/3
 
 	LDA (SPRITE_ADDRESS),Y		; 5
-	; idle cycles to prevent writing to GRP0 mid-colour-cycle
-	NOP												; 2
-	STA GRP0									; 3
+	STA GRP0									; 3 
 	DEY												; 2
 	JMP .sprite_done					; 3
 
@@ -481,25 +452,44 @@ game SUBROUTINE game
 	STY GRP0									; 3
 	DEY												; 2
 
-	; maximum 76 cycles between STA WSYNC 
-	; up to this point (including interlace test):
-	;		23 (19) - last sprite line drawn
-	;		27 (24) - drawn sprite line
-	;		15 (12) - scan line below BIRD_POS
-	;		12 (9) - scan line above BIRD_POS
-	; 49 cycles safely available
-
 .sprite_done
+
+	; maximum 76 cycles between STA WSYNC up to this point 
+	;	 4 - scan line above BIRD_POS
+	;	 9 - scan line below BIRD_POS
+	;	16 - last sprite line drawn
+	;	23 - drawn sprite line
+	; 
+	; 53 cycles safely available
+
 	JMP .next_scanline				; 3
 ; -----------------------
 
+; -----------------------
+.display_obstacle
+	STA WSYNC									; 3
+
+	LDA OBSTACLE_0_DRAW				; 3
+	STA ENAM0									; 3
+	LDA OBSTACLE_1_DRAW				; 3
+	STA ENAM1									; 3
+
+	; maximum 76 cycles between STA WSYNC up to this point
+	;  12 cycles
+	; 
+	; 64 cycles safely available
+
+; -----------------------
+
+
+; -----------------------
 .pre_calc
 	; we dont' have time in the HBLANK to do all this comparing and branching
 	; so we "precalc" the results now in time for the next scanline
 	; we're using precious visible scanline cycles of course, but all the important
 	; "drawing" is done during the hblank and the first part of the visible screen
 
-.do_obstacle_0
+.pre_calc_obstacle_0
 	CPX OBSTACLE_0_T					; 3
 	BCC .obstacle_0_on				; 2/3
 	CPX OBSTACLE_0_B					; 3
@@ -508,13 +498,13 @@ game SUBROUTINE game
 .obstacle_0_on
 	LDA #$2
 	STA OBSTACLE_0_DRAW
-	JMP .do_obstacle_1				; 3
+	JMP .pre_calc_obstacle_1	; 3
 
 .obstacle_0_off
 	LDA #0										; 2
 	STA OBSTACLE_0_DRAW
 
-.do_obstacle_1
+.pre_calc_obstacle_1
 	CPX OBSTACLE_1_T					; 3
 	BCC .obstacle_1_on				; 2/3
 	CPX OBSTACLE_1_B					; 3
@@ -523,29 +513,35 @@ game SUBROUTINE game
 .obstacle_1_on
 	LDA #$2
 	STA OBSTACLE_1_DRAW
-	JMP .obstacles_done				; 3
+	JMP .next_scanline				; 3
 
 .obstacle_1_off
 	LDA #0										; 2
 	STA OBSTACLE_1_DRAW
+; -----------------------
 
-.obstacles_done
 
+; -----------------------
 .next_scanline
-	; we need the number of scanlines in the accumulator at the beginning of the .display_loop
-	; decrement and move transfer with TXA - saving precious cycles for the HBLANK
+	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												
+	BEQ .overscan_kernel			; 2/3
+
+	; interlace sprite and obstacle drawing
+	; - accumulator should contain the current scanline
 	TXA
+	AND #%00000001						; 2
+	BEQ .display_sprite				; 2/3
+	JMP .display_obstacle			; 3
+; -----------------------
 
-	STA WSYNC									; 3
-
-	; status flags from DEX have survived so this branch is based on that
-	BNE .display_loop					; 2/3
 
 ; ----------------------------------
 ; > OVERSCAN KERNEL
 
 .overscan_kernel
+	STA WSYNC									; 3
+
 	OVERSCAN_KERNEL_SETUP
 
 	; update frame cycle
