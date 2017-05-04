@@ -149,9 +149,10 @@ game_init SUBROUTINE game_init
 	STA RESP1
 	STA RESBL
 
-	; draw ball
 .draw_ball
+	; the ball will be enabled throughout the game
 	STA ENABL
+	; fine tune positioning of the ball
 	LDA #$21
 	STA HMBL
 	STA WSYNC
@@ -164,10 +165,9 @@ game_init SUBROUTINE game_init
 	IDLE_WSYNC_TO_VISIBLE_SCREEN_MIDDLE
 	STA RESM0
 
-	; the ball horizontal movement was just for fine tuning the backstop
-	; reset all horizontal before setting the speed of flight (which will persist
-	; throughout the game)
-	; note that we need to wait at least 24 machine cycles since HMOVE
+	; reset all horizontal movement before setting the speed of flight (which will
+	; persist throughout the game)
+	; note that we need to wait at least 24 machine cycles since the ball HMOVE above
 	; or the motion will not have occurred
 	STA HMCLR
 	
@@ -175,6 +175,11 @@ game_init SUBROUTINE game_init
 	LDA #OBSTACLE_SPEED
 	STA HMM0
 	STA HMM1
+
+	; load frame cycle into X ready for beginning of vblank kernel
+	; -- we implicitely do the same at the end of the overscan kernel as a
+	; side effect of the frame cycle update
+	LDX FRAME_CYCLE
 
 ; END - GAME INITIALISATION
 ; ----------------------------------
@@ -193,7 +198,6 @@ game SUBROUTINE game
 	VBLANK_KERNEL_SETUP
 
 	; frame triage - cycle through vblank kernels every FRAME_CYCLE frames
-	LDX FRAME_CYCLE
 	CPX #FRAME_CYCLE_SPRITE
 	BEQ .frame_player_sprite
 	CPX #FRAME_CYCLE_PFIELD
@@ -209,25 +213,26 @@ game SUBROUTINE game
 	; -------------
 	; FRAME - OBSTACLES
 .frame_obstacles
-	; check collisions
+	; check bird collision
+.check_bird_collision
+	BIT CXM1P
+	BMI .bird_collision
+	BIT CXM0P
+	BVS .bird_collision
+
+	; check for collision of obstacles with backstop
 	BIT CXM0FB
 	BVS .reset_obstacle_0
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
-	; a frame has occurred without collision - reset speed and size of both obstacles (missiles)
+	; a frame has occurred without obstacle collision - reset speed and size of both obstacles (missiles)
 	LDA #OBSTACLE_SPEED
 	STA HMM0
 	STA HMM1
 	LDA #OBSTACLE_WIDTH
 	STA NUSIZ0
 	STA NUSIZ1
-
-	; check bird collision
-	BIT CXM1P
-	BMI .bird_collision
-	BIT CXM0P
-	BVS .bird_collision
 
 	JMP .end_frame_triage
 
@@ -237,11 +242,13 @@ game SUBROUTINE game
 	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
 	STA OBSTACLE_0_T
+	; calculate bottom for obstacle 0
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OBSTACLE_0_B
 
 	; increase speed / decrease size of obstacle temporarily
+	; prevents ugly graphical glitch
 	LDA #OBSTACLE_DISAPPEAR_SPEED
 	STA HMM0
 	LDA #0
@@ -253,11 +260,13 @@ game SUBROUTINE game
 	LDY OBSTACLE_TOP_POINTER
 	LDA OBSTACLE_TOPS,Y
 	STA OBSTACLE_1_T
+	; calculate bottom for obstacle 1
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OBSTACLE_1_B
 
 	; increase speed / decrease size of obstacle temporarily
+	; prevents ugly graphical glitch
 	LDA #OBSTACLE_DISAPPEAR_SPEED
 	STA HMM1
 	LDA #0
@@ -279,37 +288,42 @@ game SUBROUTINE game
 .frame_player_sprite
 	; check fire button
 	LDA INPT4
-	BMI .continue_anim
+	BMI .do_flight_anim
 
-	; change next obstacle - we won't be using this until next frame so
-	; we've deferred limiting  the pointer to the overscan kernel
+	; fire button is being pressed
+
+	; change position of next obstacle - to save precious cycles
+	; we've deferred limiting the pointer to the overscan kernel
 	INC OBSTACLE_TOP_POINTER
 
-	; do nothing if fire is being held
+	; do nothing if fire is being held from last frame
 	LDX FIRE_HELD
-	BPL .continue_anim
+	BPL .do_flight_anim
 
-	; start new fly animation
-	LDA #FLY_CLIMB_START_FRAME
-	STA FLY_FRAME
+	; new fire button press - start new fly animation
+	LDX #FLY_CLIMB_START_FRAME
+	STX FLY_FRAME
 
-	; flip sprite
-	LDA SPRITE_ADDRESS
-	CMP #<SPRITE_WINGS_DOWN
+	; flip sprite in response to fire button press
+	LDX SPRITE_ADDRESS
+	CPX #<SPRITE_WINGS_DOWN
 	BEQ .flip_sprite_use_flat
 
-	LDA #<SPRITE_WINGS_DOWN
-	STA SPRITE_ADDRESS
+	LDX #<SPRITE_WINGS_DOWN
+	STX SPRITE_ADDRESS
 	JMP .flip_sprite_end
 
 .flip_sprite_use_flat
-	LDA #<SPRITE_WINGS_FLAT
-	STA SPRITE_ADDRESS
+	LDX #<SPRITE_WINGS_FLAT
+	STX SPRITE_ADDRESS
 .flip_sprite_end
 
-
-.continue_anim
+.do_flight_anim
+	; save fire button state for next frame
+	; (accumulator should still reflect INPT4)
 	STA FIRE_HELD
+
+	; fly down animation
 	LDA FLY_FRAME
 	BMI .fly_down
 
@@ -318,7 +332,7 @@ game SUBROUTINE game
 	CMP #CLIMB_FRAMES
 	BPL .glide_test
 
-	; ... not yet, so fly up
+	; else, fly up
 	INC FLY_FRAME
 	LDA BIRD_POS
 	CLC
@@ -350,6 +364,8 @@ game SUBROUTINE game
 	JMP .fly_end
 
 .end_glide
+	; we have been gliding for the maximum number of frames
+	; begin fly down animation
 	LDA #FLY_DIVE_START_FRAME
 	STA FLY_FRAME
 
@@ -358,6 +374,7 @@ game SUBROUTINE game
 	LDA #<SPRITE_WINGS_UP
 	STA SPRITE_ADDRESS
 
+	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	LDA BIRD_POS
 	CLC
 	ADC FLY_FRAME
@@ -390,18 +407,17 @@ game SUBROUTINE game
 
 	; setup display kernel
 
-	; first scanline always contains the obstacles
-	; - whether or not the next scanline will contain the obstacle
-	; is decided in the display kernel, at the end of the preceeding scanline
+	; first scanline always contains the obstacles - the gaps in the obstacles are decided
+	; in the display kernel, at the _end_ of each of scanline, in time for the next scanline
 	LDA #$2
 	STA OBSTACLE_0_DRAW
 	STA OBSTACLE_1_DRAW
 
-	; X register will now contain the current scanline for the duration of the display kernal
-	LDX	#VISIBLE_SCANLINES
-
 	; preload Y register with number of sprite lines
 	LDY SPRITE_LINES
+
+	; X register will now contain the current scanline for the duration of the display kernal
+	LDX	#VISIBLE_SCANLINES
 
 	; we need the number of scanlines in the accumulator at the beginning of the .display_loop
 	; - saving precious cycles for the HBLANK
@@ -425,6 +441,7 @@ game SUBROUTINE game
 
 .display_loop
 	; interlace sprite and obstacle drawing
+	; - accumulator should contain the current scanline
 	AND #%00000001						; 2
 	BEQ .do_sprite						; 2/3
 
@@ -518,7 +535,7 @@ game SUBROUTINE game
 	; we need the number of scanlines in the accumulator at the beginning of the .display_loop
 	; decrement and move transfer with TXA - saving precious cycles for the HBLANK
 	DEX												
-	TXA												
+	TXA
 
 	STA WSYNC									; 3
 
