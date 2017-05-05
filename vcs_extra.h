@@ -1,7 +1,7 @@
 VISIBLE_SCANLINES =	$C0	 ; 192
 
 ;-----------------------------------
-	mac DEAD_FRAME
+	MAC DEAD_FRAME
 		VSYNC_KERNEL
 		VBLANK_KERNEL_WAIT
 
@@ -12,37 +12,34 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 		DEX
 		BNE .display_loop
 		OVERSCAN_KERNEL_EMPTY
-	endm
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP
-		; cusp defined as "3 machine cycles to visible screen"
-		; the zero page write to WSYNC adds abother 9 clock counts (3 cycles)
+	MAC POSITION_RESET
 		STA WSYNC
-		SLEEP_CLOCK_COUNTS 48
-		; 48 clock counts leaves 9 clock counts (3 cycles) for writing to a reset player/missile/ball register
-	endm
-;-----------------------------------
+		SLEEP_CLOCK_COUNTS {2}
+		STA {1}
+	ENDM
 
+	MAC POSITION_RESET_SCREEN_LEFT
+		POSITION_RESET {1}, 48
+	ENDM
 
-;-----------------------------------
-	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_RIGHT
-		STA WSYNC
-		SLEEP_CLOCK_COUNTS 215
-	endm
+	MAC POSITION_RESET_SCREEN_MIDDLE
+		POSITION_RESET {1}, 140
+	ENDM
 
-	mac IDLE_WSYNC_TO_VISIBLE_SCREEN_MIDDLE
-		STA WSYNC
-		SLEEP_CLOCK_COUNTS 140
-	endm
+	MAC POSITION_RESET_SCREEN_RIGHT
+		POSITION_RESET {1}, 215
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
 	; like SLEEP in vcs.h but for clock counts rather than cycles
-	mac SLEEP_CLOCK_COUNTS
+	MAC SLEEP_CLOCK_COUNTS
 .CLOCK_COUNTS		SET {1}
 		IF .CLOCK_COUNTS < 1
 				ECHO "MACRO ERROR: 'SLEEP_CLOCK_COUNTS': Duration must be > 0"
@@ -51,12 +48,12 @@ VISIBLE_SCANLINES =	$C0	 ; 192
     REPEAT .CLOCK_COUNTS / 6
 			SLEEP 2
     REPEND
-	endm
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	mac WAIT_SCANLINE_TIMER
+	MAC WAIT_SCANLINE_TIMER
 		; ----
 		; original comment 
 		; ----
@@ -83,78 +80,78 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 
 		LDA	#.VBLANK_TIMER_VAL
 		STA TIM64T
-	endm
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	mac VSYNC_KERNEL_BASIC
-	VERTICAL_SYNC
-	endm
+	MAC VSYNC_KERNEL_BASIC
+		VERTICAL_SYNC
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	mac VBLANK_KERNEL_BASIC
-	LDX	#37			; 30 lines in overscan
+	MAC VBLANK_KERNEL_BASIC
+		LDX	#37			; 30 lines in overscan
 .vblank_loop
-	STA WSYNC
-	DEX
-	BNE .vblank_loop
-	endm
+		STA WSYNC
+		DEX
+		BNE .vblank_loop
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	mac VBLANK_KERNEL_SETUP
-	WAIT_SCANLINE_TIMER 37
-	endm
+	MAC VBLANK_KERNEL_SETUP
+		WAIT_SCANLINE_TIMER 37
+	ENDM
 
 
-	mac VBLANK_KERNEL_END
+	MAC VBLANK_KERNEL_END
 .vblank_loop
-	LDA INTIM
-	BNE .vblank_loop
-	; turn beam back on at beginning of horizontal line
-	STA WSYNC
-	STA VBLANK
-	endm
+		LDA INTIM
+		BNE .vblank_loop
+		; turn beam back on at beginning of horizontal line
+		STA WSYNC
+		STA VBLANK
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
 	; empty overscan kernel - useful for when you don't want/need to do
 	; anything during the overscan. 
-	mac OVERSCAN_KERNEL_BASIC
+	MAC OVERSCAN_KERNEL_BASIC
 .overscan_kernel
-	; wait for overscan
-	STA WSYNC
-	LDA	#2
-	STA VBLANK
+		; wait for overscan
+		STA WSYNC
+		LDA	#2
+		STA VBLANK
 
-	LDX	#30			; 30 lines in overscan
+		LDX	#30			; 30 lines in overscan
 .overscan_loop
-	STA WSYNC
-	DEX
-	BNE .overscan_loop
-	endm
+		STA WSYNC
+		DEX
+		BNE .overscan_loop
+	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	mac OVERSCAN_KERNEL_SETUP
-	; wait for overscan
-	STA WSYNC
-	LDA	#2
-	STA VBLANK
+	MAC OVERSCAN_KERNEL_SETUP
+		; wait for overscan
+		STA WSYNC
+		LDA	#2
+		STA VBLANK
 
-	WAIT_SCANLINE_TIMER 30
-	endm
+		WAIT_SCANLINE_TIMER 30
+	ENDM
 
 
-	mac OVERSCAN_KERNEL_END
+	MAC OVERSCAN_KERNEL_END
 .overscan_loop
-	LDA INTIM
-	BNE .overscan_loop
-	endm
+		LDA INTIM
+		BNE .overscan_loop
+	ENDM
 ;-----------------------------------

@@ -22,17 +22,17 @@ OBSTACLE_DISAPPEAR_SPEED = $20
 
 BACKGROUND_COLOR	=	$85
 
-	; how often (in frames) each vblank kernel should run
-FRAME_CYCLE_COUNT		=	$3
-FRAME_CYCLE_SPRITE	=	$1
-FRAME_CYCLE_PFIELD	=	$2
-FRAME_CYCLE_SPARE		=	$3
+; how often (in frames) each vblank kernel should run
+VBLANK_CYCLE_COUNT			=	$3
+VBLANK_CYCLE_SPRITE			=	$1
+VBLANK_CYCLE_OBSTACLES	=	$2
+VBLANK_CYCLE_SPARE			=	$3
 
-	; screen boundaries for bird sprite
+; screen boundaries for bird sprite
 BIRD_HIGH	=		$C0
 BIRD_LOW	=		$10
 
-	; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
+; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_CLIMB_START_FRAME	=		$0
 FLY_DIVE_START_FRAME	=		$FF
 
@@ -40,7 +40,7 @@ BIRD_INIT				=	$BF
 FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
 
 
-; data  - variables
+; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 FRAME_CYCLE					ds 1
@@ -59,6 +59,7 @@ OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
 OBSTACLE_0_DRAW				ds 1
 OBSTACLE_1_DRAW				ds 2
 
+
 ; start of cart ROM
 	SEG
 	ORG $F000	
@@ -75,21 +76,19 @@ SPRITE_LINES				.byte	7
 OBSTACLE_TOPS				HEX 20 30 40 50 60 70 80 90
 OBSTACLE_TOP_MAX		= 7
 
+
 ; ----------------------------------
 ; SETUP
 
 setup SUBROUTINE setup
 	CLEAN_START
 
-; END - SETUP
-; ----------------------------------
-
 
 ; ----------------------------------
 ; GAME INITIALISATION
 
 game_init SUBROUTINE game_init
-	LDA #FRAME_CYCLE_COUNT
+	LDA #VBLANK_CYCLE_COUNT
 	STA FRAME_CYCLE
 
 	LDA INPT4
@@ -142,7 +141,7 @@ game_init SUBROUTINE game_init
 	STA VBLANK
 
 	; reset sprite objects to leftmost of the screen
-	; we could use the IDLE_WSYNC_TO_VISIBLE_SCREEN_CUSP macro
+	; we could use the NEXT_3_CYCLES_IS_SCREEN_LEFT macro
 	; but resettting anywhere in the horizontal blank will have the
 	; same effect
 	STA RESP0
@@ -159,11 +158,10 @@ game_init SUBROUTINE game_init
 	STA HMOVE
 
 	; place obstacle 1 (missile 1) at right most screen edge
-	IDLE_WSYNC_TO_VISIBLE_SCREEN_RIGHT
-	STA RESM1
+	POSITION_RESET_SCREEN_RIGHT RESM1
 
-	IDLE_WSYNC_TO_VISIBLE_SCREEN_MIDDLE
-	STA RESM0
+	; place obstacle 0 (missile 1) at screen middle
+	POSITION_RESET_SCREEN_MIDDLE RESM0
 
 	; reset all horizontal movement before setting the speed of flight (which will
 	; persist throughout the game)
@@ -177,7 +175,7 @@ game_init SUBROUTINE game_init
 	STA HMM1
 
 	; load frame cycle into X ready for beginning of vblank kernel
-	; -- we implicitely do the same at the end of the overscan kernel as a
+	; -- we implicitly do the same at the end of the overscan kernel as a
 	; side effect of the frame cycle update
 	LDX FRAME_CYCLE
 
@@ -198,9 +196,9 @@ game SUBROUTINE game
 	VBLANK_KERNEL_SETUP
 
 	; frame triage - cycle through vblank kernels every FRAME_CYCLE frames
-	CPX #FRAME_CYCLE_SPRITE
+	CPX #VBLANK_CYCLE_SPRITE
 	BEQ .frame_player_sprite
-	CPX #FRAME_CYCLE_PFIELD
+	CPX #VBLANK_CYCLE_OBSTACLES
 	BEQ .frame_obstacles
 	; fall through 
 
@@ -420,6 +418,7 @@ game SUBROUTINE game
 	; wait for end of vblank kernel 
 	VBLANK_KERNEL_END
 
+
 ; ----------------------------------
 ; > DISPLAY KERNEL
 
@@ -460,7 +459,7 @@ game SUBROUTINE game
 	;	16 - last sprite line drawn
 	;	23 - drawn sprite line
 	; 
-	; 53 cycles safely available
+	; 53 cycles safely available until next WSYNC
 
 	JMP .next_scanline				; 3
 ; -----------------------
@@ -477,14 +476,13 @@ game SUBROUTINE game
 	; maximum 76 cycles between STA WSYNC up to this point
 	;  12 cycles
 	; 
-	; 64 cycles safely available
+	; 64 cycles safely available until next WSYNC
 
 ; -----------------------
-
 
 ; -----------------------
 .pre_calc
-	; we dont' have time in the HBLANK to do all this comparing and branching
+	; we don't have time in the HBLANK to do all this comparing and branching
 	; so we "precalc" the results now in time for the next scanline
 	; we're using precious visible scanline cycles of course, but all the important
 	; "drawing" is done during the hblank and the first part of the visible screen
@@ -520,7 +518,6 @@ game SUBROUTINE game
 	STA OBSTACLE_1_DRAW
 ; -----------------------
 
-
 ; -----------------------
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
@@ -548,7 +545,7 @@ game SUBROUTINE game
 	LDX FRAME_CYCLE
 	DEX
 	BNE .store_frame_cycle
-	LDX #FRAME_CYCLE_COUNT
+	LDX #VBLANK_CYCLE_COUNT
 .store_frame_cycle
 	STX FRAME_CYCLE
 
