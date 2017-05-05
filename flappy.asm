@@ -57,7 +57,10 @@ OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
 
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
 OBSTACLE_0_DRAW				ds 1
-OBSTACLE_1_DRAW				ds 2
+OBSTACLE_1_DRAW				ds 1
+
+; pre-calculated GRP0
+BIRD_DRAW							ds 1
 
 
 ; start of cart ROM
@@ -405,6 +408,10 @@ game SUBROUTINE game
 
 	; setup display kernel
 
+	; first sprite line will be empty
+	LDA #$0
+	STA BIRD_DRAW
+
 	; preload Y register with number of sprite lines
 	LDY SPRITE_LINES
 
@@ -434,32 +441,34 @@ game SUBROUTINE game
 .display_sprite
 	STA WSYNC									; 3
 
-	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
-	CPX BIRD_POS							; 2
-	BCS .sprite_done					; 2/3
-
-	TYA												; 2
-	BMI .sprite_done					; 2/3
-	BEQ	.sprite_off						; 2/3
-
-	LDA (SPRITE_ADDRESS),Y		; 5
-	STA GRP0									; 3 
-	DEY												; 2
-	JMP .sprite_done					; 3
-
-.sprite_off
-	STY GRP0									; 3
-	DEY												; 2
-
-.sprite_done
+	LDA BIRD_DRAW							; 3
+	STA GRP0									; 3
 
 	; maximum 76 cycles between STA WSYNC up to this point 
-	;	 4 - scan line above BIRD_POS
-	;	 9 - scan line below BIRD_POS
-	;	16 - last sprite line drawn
-	;	23 - drawn sprite line
+	;	6 cycles
 	; 
-	; 53 cycles safely available until next WSYNC
+	; 70 cycles safely available until next WSYNC
+; -----------------------
+
+; -----------------------
+.precalc_sprite
+	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
+	CPX BIRD_POS							; 2
+	BCS .precalc_sprite_done	; 2/3
+
+	TYA												; 2
+	BMI .precalc_sprite_done	; 2/3
+	BEQ	.precalc_sprite_off		; 2/3
+
+	LDA (SPRITE_ADDRESS),Y		; 5
+	STA BIRD_DRAW							; 3 
+	DEY												; 2
+	JMP .precalc_sprite_done	; 3
+
+.precalc_sprite_off
+	STY BIRD_DRAW							; 3
+
+.precalc_sprite_done
 
 	JMP .next_scanline				; 3
 ; -----------------------
@@ -477,17 +486,16 @@ game SUBROUTINE game
 	;  12 cycles
 	; 
 	; 64 cycles safely available until next WSYNC
-
 ; -----------------------
 
 ; -----------------------
-.pre_calc
+.precalc_obstacles
 	; we don't have time in the HBLANK to do all this comparing and branching
 	; so we "precalc" the results now in time for the next scanline
 	; we're using precious visible scanline cycles of course, but all the important
 	; "drawing" is done during the hblank and the first part of the visible screen
 
-.pre_calc_obstacle_0
+.precalc_obstacle_0
 	CPX OBSTACLE_0_T					; 3
 	BCC .obstacle_0_on				; 2/3
 	CPX OBSTACLE_0_B					; 3
@@ -496,13 +504,13 @@ game SUBROUTINE game
 .obstacle_0_on
 	LDA #$2
 	STA OBSTACLE_0_DRAW
-	JMP .pre_calc_obstacle_1	; 3
+	JMP .precalc_obstacle_1	; 3
 
 .obstacle_0_off
 	LDA #0										; 2
 	STA OBSTACLE_0_DRAW
 
-.pre_calc_obstacle_1
+.precalc_obstacle_1
 	CPX OBSTACLE_1_T					; 3
 	BCC .obstacle_1_on				; 2/3
 	CPX OBSTACLE_1_B					; 3
