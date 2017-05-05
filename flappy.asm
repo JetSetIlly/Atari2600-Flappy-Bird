@@ -20,7 +20,7 @@ OBSTACLE_DISAPPEAR_SPEED = $20
 
 ; program constants
 
-BACKGROUND_COLOR	=	$85
+BASE_BACKGROUND_COLOR		=	$80
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT			=	$3
@@ -61,6 +61,9 @@ OBSTACLE_1_DRAW				ds 1
 
 ; pre-calculated GRP0
 BIRD_DRAW							ds 1
+
+; background colour
+CURRENT_BG_COL				ds 1
 
 
 ; start of cart ROM
@@ -131,10 +134,6 @@ game_init SUBROUTINE game_init
 	ADC #OBSTACLE_WINDOW
 	STA OBSTACLE_1_B
 
-	; set background colour
-	LDA #BACKGROUND_COLOR
-	STA	COLUBK
-
 .position_elements
 	; we only need to position elements once. we use the very first frame of the game sequence to do this.
 	STA WSYNC
@@ -203,7 +202,6 @@ game SUBROUTINE game
 	BEQ .frame_player_sprite
 	CPX #VBLANK_CYCLE_OBSTACLES
 	BEQ .frame_obstacles
-	; fall through 
 
 	; -------------
 	; FRAME - SPARE
@@ -214,7 +212,7 @@ game SUBROUTINE game
 	; -------------
 	; FRAME - OBSTACLES
 .frame_obstacles
-	; check bird collision
+
 .check_bird_collision
 	BIT CXM1P
 	BMI .bird_collision
@@ -408,6 +406,11 @@ game SUBROUTINE game
 
 	; setup display kernel
 
+	; set background colour
+	LDA #BASE_BACKGROUND_COLOR
+	STA CURRENT_BG_COL
+	STA	COLUBK
+
 	; first sprite line will be empty
 	LDA #$0
 	STA BIRD_DRAW
@@ -447,10 +450,8 @@ game SUBROUTINE game
 	; maximum 76 cycles between STA WSYNC up to this point 
 	;	6 cycles
 	; 
-	; 70 cycles safely available until next WSYNC
-; -----------------------
+	; 16 cycles until end of HBLANK
 
-; -----------------------
 .precalc_sprite
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPX BIRD_POS							; 2
@@ -470,6 +471,15 @@ game SUBROUTINE game
 
 .precalc_sprite_done
 
+.precalc_background
+	TXA
+	AND #%00011111
+	BNE .next_scanline	
+	LDA CURRENT_BG_COL
+	CLC
+	ADC #$2
+	STA CURRENT_BG_COL
+
 	JMP .next_scanline				; 3
 ; -----------------------
 
@@ -485,10 +495,14 @@ game SUBROUTINE game
 	; maximum 76 cycles between STA WSYNC up to this point
 	;  12 cycles
 	; 
-	; 64 cycles safely available until next WSYNC
-; -----------------------
+	; 10 cycles until end of HBLANK
 
-; -----------------------
+.change_background
+	LDA CURRENT_BG_COL				; 3
+	STA	COLUBK								; 3
+
+	; more or less at beginning of visible screen
+
 .precalc_obstacles
 	; we don't have time in the HBLANK to do all this comparing and branching
 	; so we "precalc" the results now in time for the next scanline
@@ -569,9 +583,6 @@ game SUBROUTINE game
 
 	JMP .vertical_loop
 
-; END - GAME
-; ----------------------------------
-
 
 ; ----------------------------------
 ; MACHINE INITIALISATION 
@@ -583,5 +594,3 @@ initialisation SUBROUTINE initialisation
 	.word setup		; RESET
 	.word setup		;	IRQ
 
-; END - MACHINE INITIALISATION 
-; ----------------------------------
