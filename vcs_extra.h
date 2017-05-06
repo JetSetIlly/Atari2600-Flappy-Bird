@@ -1,4 +1,7 @@
-VISIBLE_SCANLINES =	$C0	 ; 192
+
+VBLANK_SCANLINES = $25		; 37
+VISIBLE_SCANLINES =	$C0		; 192
+OVERSCAN_SCANLINES = $1E	; 30
 
 ;-----------------------------------
 	MAC DEAD_FRAME
@@ -6,7 +9,7 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 		VBLANK_KERNEL_WAIT
 
 		STA WSYNC
-		LDX	#192			; 192 lines in display
+		LDX	#VISIBLE_SCANLINES
 .display_loop
 		STA WSYNC
 		DEX
@@ -93,7 +96,7 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 
 ;-----------------------------------
 	MAC VBLANK_KERNEL_BASIC
-		LDX	#37			; 30 lines in overscan
+		LDX	#VBLANK_SCANLINES
 .vblank_loop
 		STA WSYNC
 		DEX
@@ -104,7 +107,7 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 
 ;-----------------------------------
 	MAC VBLANK_KERNEL_SETUP
-		WAIT_SCANLINE_TIMER 37
+		WAIT_SCANLINE_TIMER #VBLANK_SCANLINES
 	ENDM
 
 
@@ -129,7 +132,7 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 		LDA	#2
 		STA VBLANK
 
-		LDX	#30			; 30 lines in overscan
+		LDX	#OVERSCAN_SCANLINES
 .overscan_loop
 		STA WSYNC
 		DEX
@@ -145,7 +148,7 @@ VISIBLE_SCANLINES =	$C0	 ; 192
 		LDA	#2
 		STA VBLANK
 
-		WAIT_SCANLINE_TIMER 30
+		WAIT_SCANLINE_TIMER #OVERSCAN_SCANLINES
 	ENDM
 
 

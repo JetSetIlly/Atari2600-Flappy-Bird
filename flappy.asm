@@ -20,7 +20,7 @@ OBSTACLE_DISAPPEAR_SPEED = $20
 
 ; program constants
 
-BACKGROUND_COLOR		=	$86
+BACKGROUND_COLOR		=	$C0
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT			=	$3
@@ -181,20 +181,18 @@ game_init SUBROUTINE game_init
 	; side effect of the frame cycle update
 	LDX FRAME_CYCLE
 
-; END - GAME INITIALISATION
-; ----------------------------------
-
 
 ; ----------------------------------
-; GAME
+; GAME - VSYNC
 
-game SUBROUTINE game
-
-.vertical_loop
+game_vsync SUBROUTINE game_vsync
 	VSYNC_KERNEL_BASIC
+
 	
 ; ----------------------------------
-; > VBLANK KERNEL
+; GAME - VBLANK
+
+game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
 	; vblank triage - cycle through vblank kernels every FRAME_CYCLE frames
@@ -203,14 +201,16 @@ game SUBROUTINE game
 	CPX #VBLANK_CYCLE_OBSTACLES
 	BEQ .vblank_collisions
 
-	; -------------
-	; VBLANK - SPARE
-	JMP .end_vblank_triage
-	; END - VBLANK - SPARE
-	; -------------
 
 	; -------------
-	; VBLANK - COLLISIONS
+	; GAME - VBLANK - SPARE
+
+	JMP .end_vblank_triage
+
+
+	; -------------
+	; GAME - VBLANK - COLLISIONS
+
 .vblank_collisions
 
 	; check bird collision
@@ -278,12 +278,10 @@ game SUBROUTINE game
 	; TODO: better collision handling
 	BRK
 
-	; END - VBLANK - COLLISIONS
-	; -------------
-
 
 	; -------------
-	; VBLANK - PLAYER SPRITE
+	; GAME - VBLANK - USER INPUT
+
 .vblank_player_sprite
 	; check fire button
 	LDA INPT4
@@ -401,8 +399,9 @@ game SUBROUTINE game
 .fly_end
 	; fall through to end_frame_triage
 
-	; END - VBLANK - PLAYER SPRITE
+
 	; -------------
+	; GAME - VBLANK - PREPARE DISPLAY
 
 .end_vblank_triage
 	; reset collision flags every frame
@@ -434,7 +433,7 @@ game SUBROUTINE game
 
 
 ; ----------------------------------
-; > DISPLAY KERNEL
+; GAME - DISPLAY
 
 ; X register contain the current scanline for the duration of the display kernal
 
@@ -442,10 +441,10 @@ game SUBROUTINE game
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; to set the sprite line
 
-.display_loop
+game_play_area SUBROUTINE game_play_area
 
 ; -----------------------
-.display_sprite
+.display_bird
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
 
@@ -540,20 +539,20 @@ game SUBROUTINE game
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												; 2
-	BEQ .overscan_kernel			; 2/3
+	BEQ game_overscan					; 2/3
 
 	; interlace sprite and obstacle drawing
 	TXA												; 2
 	AND #%00000001						; 2
-	BEQ .display_sprite				; 2/3
+	BEQ .display_bird	  			; 2/3
 	JMP .display_obstacle			; 3
 ; -----------------------
 
 
 ; ----------------------------------
-; > OVERSCAN KERNEL
+; GAME - OVERSCAN 
 
-.overscan_kernel
+game_overscan SUBROUTINE game_overscan
 	STA WSYNC									; 3
 
 	OVERSCAN_KERNEL_SETUP
@@ -576,7 +575,7 @@ game SUBROUTINE game
 
 	OVERSCAN_KERNEL_END
 
-	JMP .vertical_loop
+	JMP game_vsync
 
 
 ; ----------------------------------
