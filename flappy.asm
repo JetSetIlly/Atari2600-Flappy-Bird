@@ -20,7 +20,7 @@ OBSTACLE_DISAPPEAR_SPEED = $20
 
 ; program constants
 
-BASE_BACKGROUND_COLOR		=	$80
+BACKGROUND_COLOR		=	$86
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT			=	$3
@@ -64,9 +64,6 @@ OBSTACLE_1_DRAW				ds 1
 
 ; pre-calculated GRP0
 BIRD_DRAW							ds 1
-
-; current background colour
-CURRENT_BG_COL				ds 1
 
 
 ; start of cart ROM
@@ -121,7 +118,7 @@ game_init SUBROUTINE game_init
 	STA NUSIZ1
 
 	; beginning obstacles
-	LDY #$0
+	LDY #$3
 	LDA OBSTACLES,Y
 	STA OB_0_START
 	CLC
@@ -414,8 +411,7 @@ game SUBROUTINE game
 	; setup display kernel
 
 	; set background colour
-	LDA #BASE_BACKGROUND_COLOR
-	STA CURRENT_BG_COL
+	LDA #BACKGROUND_COLOR
 	STA	COLUBK
 
 	; first sprite line should be empty ie. 
@@ -480,24 +476,15 @@ game SUBROUTINE game
 
 .precalc_sprite_done
 
-.precalc_background
-	TXA												; 2
-	AND #%00011111						; 2
-	BNE .next_scanline				; 2/3
-	LDA CURRENT_BG_COL				; 3
-	CLC												; 2
-	ADC #$2										; 2
-	STA CURRENT_BG_COL				; 3
-
 	; NOTE: save the JMP cycles by making ".next_scanline" a macro
 	JMP .next_scanline				; 3
 
 	; longest path
-	;   51 cycles
+	;   31 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 67
-	; 9 cycles remaining
+	; = 47
+	; 29 cycles remaining
 ; -----------------------
 
 ; -----------------------
@@ -514,12 +501,6 @@ game SUBROUTINE game
 	;	 12 cycles used
 	; 
 	; 10 cycles until end of HBLANK
-
-.change_background
-	LDA CURRENT_BG_COL				; 3
-	STA	COLUBK								; 3
-
-	; 4 cycles until end of HBLANK
 
 .precalc_obstacles
 	; we don't have time in the HBLANK to do all this comparing and branching
@@ -548,11 +529,11 @@ game SUBROUTINE game
 	STA OBSTACLE_1_DRAW				; 3
 
 	; longest path
-	;		51 cycles
+	;		46 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 67
-	; 9 cycles remaining
+	; = 62
+	; 14 cycles remaining
 ; -----------------------
 
 ; -----------------------
