@@ -62,7 +62,7 @@ OBSTACLE_1_DRAW				ds 1
 ; pre-calculated GRP0
 BIRD_DRAW							ds 1
 
-; background colour
+; current background colour
 CURRENT_BG_COL				ds 1
 
 
@@ -76,7 +76,7 @@ SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40
 SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
 SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
 SPRITE_LINES				.byte	7
-; note: first FF in each sprite is a boundry byte - value is unimportant
+; NOTE: first FF in each sprite is a boundry byte - value is unimportant
 
 ; table of obstacles
 OBSTACLE_TOPS				HEX 20 30 40 50 60 70 80 90
@@ -167,7 +167,7 @@ game_init SUBROUTINE game_init
 
 	; reset all horizontal movement before setting the speed of flight (which will
 	; persist throughout the game)
-	; note that we need to wait at least 24 machine cycles since the ball HMOVE above
+	; NOTE: we need to wait at least 24 machine cycles since the ball HMOVE above
 	; or the motion will not have occurred
 	STA HMCLR
 	
@@ -411,9 +411,10 @@ game SUBROUTINE game
 	STA CURRENT_BG_COL
 	STA	COLUBK
 
-	; first sprite line will be empty
-	LDA #$0
-	STA BIRD_DRAW
+	; first sprite line should be empty ie. 
+	;		LDA #%0
+	;		STA BIRD_DRAW
+	; is implied
 
 	; preload Y register with number of sprite lines
 	LDY SPRITE_LINES
@@ -435,20 +436,21 @@ game SUBROUTINE game
 ; X register contain the current scanline for the duration of the display kernal
 
 ; Y register contains number of SPRITE_LINES remaining
-; note: we need to use Y register because we'll be performing a post-indexed indirect address 
+; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; to set the sprite line
 
 .display_loop
 
 ; -----------------------
 .display_sprite
+	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
 
 	LDA BIRD_DRAW							; 3
 	STA GRP0									; 3
 
-	; maximum 76 cycles between STA WSYNC up to this point 
-	;	6 cycles
+	; maximum 22 cycles in HBLANK
+	;	 6 cycles used
 	; 
 	; 16 cycles until end of HBLANK
 
@@ -472,19 +474,28 @@ game SUBROUTINE game
 .precalc_sprite_done
 
 .precalc_background
-	TXA
-	AND #%00011111
-	BNE .next_scanline	
-	LDA CURRENT_BG_COL
-	CLC
-	ADC #$2
-	STA CURRENT_BG_COL
+	TXA												; 2
+	AND #%00011111						; 2
+	BNE .next_scanline				; 2/3
+	LDA CURRENT_BG_COL				; 3
+	CLC												; 2
+	ADC #$2										; 2
+	STA CURRENT_BG_COL				; 3
 
+	; NOTE: save the JMP cycles by making ".next_scanline" a macro
 	JMP .next_scanline				; 3
+
+	; longest path
+	;   51 cycles
+	; + 13 for ".next_scanline"
+	; + 3 for WSYNC
+	; = 67
+	; 9 cycles remaining
 ; -----------------------
 
 ; -----------------------
 .display_obstacle
+	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
 
 	LDA OBSTACLE_0_DRAW				; 3
@@ -492,8 +503,8 @@ game SUBROUTINE game
 	LDA OBSTACLE_1_DRAW				; 3
 	STA ENAM1									; 3
 
-	; maximum 76 cycles between STA WSYNC up to this point
-	;  12 cycles
+	; maximum 22 cycles in HBLANK
+	;	 12 cycles used
 	; 
 	; 10 cycles until end of HBLANK
 
@@ -501,7 +512,7 @@ game SUBROUTINE game
 	LDA CURRENT_BG_COL				; 3
 	STA	COLUBK								; 3
 
-	; more or less at beginning of visible screen
+	; 4 cycles until end of HBLANK
 
 .precalc_obstacles
 	; we don't have time in the HBLANK to do all this comparing and branching
@@ -510,45 +521,41 @@ game SUBROUTINE game
 	; "drawing" is done during the hblank and the first part of the visible screen
 
 .precalc_obstacle_0
+	LDA #$2										; 2
 	CPX OBSTACLE_0_T					; 3
-	BCC .obstacle_0_on				; 2/3
+	BCC .obstacle_0_done			; 2/3
 	CPX OBSTACLE_0_B					; 3
-	BCC .obstacle_0_off				; 2/3
-
-.obstacle_0_on
-	LDA #$2
-	STA OBSTACLE_0_DRAW
-	JMP .precalc_obstacle_1	; 3
-
-.obstacle_0_off
-	LDA #0										; 2
-	STA OBSTACLE_0_DRAW
+	BCS .obstacle_0_done			; 2/3
+	LDA #$0										; 2
+.obstacle_0_done
+	STA OBSTACLE_0_DRAW				; 3
 
 .precalc_obstacle_1
+	LDA #$2										; 2
 	CPX OBSTACLE_1_T					; 3
-	BCC .obstacle_1_on				; 2/3
+	BCC .obstacle_1_done			; 2/3
 	CPX OBSTACLE_1_B					; 3
-	BCC .obstacle_1_off				; 2/3
+	BCS .obstacle_1_done			; 2/3
+	LDA #$0										; 2
+.obstacle_1_done
+	STA OBSTACLE_1_DRAW				; 3
 
-.obstacle_1_on
-	LDA #$2
-	STA OBSTACLE_1_DRAW
-	JMP .next_scanline				; 3
-
-.obstacle_1_off
-	LDA #0										; 2
-	STA OBSTACLE_1_DRAW
+	; longest path
+	;		51 cycles
+	; + 13 for ".next_scanline"
+	; + 3 for WSYNC
+	; = 67
+	; 9 cycles remaining
 ; -----------------------
 
 ; -----------------------
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
-	DEX												
+	DEX												; 2
 	BEQ .overscan_kernel			; 2/3
 
 	; interlace sprite and obstacle drawing
-	; - accumulator should contain the current scanline
-	TXA
+	TXA												; 2
 	AND #%00000001						; 2
 	BEQ .display_sprite				; 2/3
 	JMP .display_obstacle			; 3
