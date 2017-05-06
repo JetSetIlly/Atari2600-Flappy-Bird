@@ -49,11 +49,14 @@ BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
-OBSTACLE_0_T					ds 1
-OBSTACLE_0_B					ds 1
-OBSTACLE_1_T					ds 1
-OBSTACLE_1_B					ds 1
-OBSTACLE_TOP_POINTER	ds 1	; points to OBSTACLE_TOPS
+; existing obstacles
+OB_0_START					ds 1
+OB_0_END						ds 1
+OB_1_START					ds 1
+OB_1_END						ds 1
+
+; start value for next obstacle - points to OBSTACLES
+NEXT_OBSTACLE				ds 1
 
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
 OBSTACLE_0_DRAW				ds 1
@@ -78,9 +81,9 @@ SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
 SPRITE_LINES				.byte	7
 ; NOTE: first FF in each sprite is a boundry byte - value is unimportant
 
-; table of obstacles
-OBSTACLE_TOPS				HEX 20 30 40 50 60 70 80 90
-OBSTACLE_TOP_MAX		= 7
+; table of obstacles (the lower the number, the lower the obstacle)
+OBSTACLES				HEX 20 30 40 50 60 70 80
+OBSTACLES_CT		= 7		; counting from 0
 
 
 ; ----------------------------------
@@ -118,21 +121,21 @@ game_init SUBROUTINE game_init
 	STA NUSIZ1
 
 	; beginning obstacles
-	LDY #$3
-	STY OBSTACLE_TOP_POINTER
-	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_0_T
+	LDY #$0
+	LDA OBSTACLES,Y
+	STA OB_0_START
 	CLC
 	ADC #OBSTACLE_WINDOW
-	STA OBSTACLE_0_B
+	STA OB_0_END
 
-	LDY #$5
-	STY OBSTACLE_TOP_POINTER
-	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_1_T
+	LDY #$6
+	LDA OBSTACLES,Y
+	STA OB_1_START
 	CLC
 	ADC #OBSTACLE_WINDOW
-	STA OBSTACLE_1_B
+	STA OB_1_END
+
+	STY NEXT_OBSTACLE
 
 .position_elements
 	; we only need to position elements once. we use the very first frame of the game sequence to do this.
@@ -197,23 +200,23 @@ game SUBROUTINE game
 ; > VBLANK KERNEL
 	VBLANK_KERNEL_SETUP
 
-	; frame triage - cycle through vblank kernels every FRAME_CYCLE frames
+	; vblank triage - cycle through vblank kernels every FRAME_CYCLE frames
 	CPX #VBLANK_CYCLE_SPRITE
-	BEQ .frame_player_sprite
+	BEQ .vblank_player_sprite
 	CPX #VBLANK_CYCLE_OBSTACLES
-	BEQ .frame_obstacles
+	BEQ .vblank_collisions
 
 	; -------------
-	; FRAME - SPARE
-	JMP .end_frame_triage
-	; END - FRAME - SPARE
+	; VBLANK - SPARE
+	JMP .end_vblank_triage
+	; END - VBLANK - SPARE
 	; -------------
 
 	; -------------
-	; FRAME - OBSTACLES
-.frame_obstacles
+	; VBLANK - COLLISIONS
+.vblank_collisions
 
-.check_bird_collision
+	; check bird collision
 	BIT CXM1P
 	BMI .bird_collision
 	BIT CXM0P
@@ -233,18 +236,18 @@ game SUBROUTINE game
 	STA NUSIZ0
 	STA NUSIZ1
 
-	JMP .end_frame_triage
+	JMP .end_vblank_triage
 
 ; TODO: make reset_obstacle_0 and reset_obstacle_1 more efficient
 .reset_obstacle_0
-	; get new top for obstacle 0
-	LDY OBSTACLE_TOP_POINTER
-	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_0_T
-	; calculate bottom for obstacle 0
+	; get new bottom for obstacle 0
+	LDY NEXT_OBSTACLE
+	LDA OBSTACLES,Y
+	STA OB_0_START
+	; calculate top of obstacle 0
 	CLC
 	ADC #OBSTACLE_WINDOW
-	STA OBSTACLE_0_B
+	STA OB_0_END
 
 	; increase speed / decrease size of obstacle temporarily
 	; prevents ugly graphical glitch
@@ -255,14 +258,14 @@ game SUBROUTINE game
 	JMP .obstacle_reset_done
 
 .reset_obstacle_1
-	; get new top for obstacle 1
-	LDY OBSTACLE_TOP_POINTER
-	LDA OBSTACLE_TOPS,Y
-	STA OBSTACLE_1_T
-	; calculate bottom for obstacle 1
+	; get new bottom for obstacle 1
+	LDY NEXT_OBSTACLE
+	LDA OBSTACLES,Y
+	STA OB_1_START
+	; calculate top for obstacle 1
 	CLC
 	ADC #OBSTACLE_WINDOW
-	STA OBSTACLE_1_B
+	STA OB_1_END
 
 	; increase speed / decrease size of obstacle temporarily
 	; prevents ugly graphical glitch
@@ -272,19 +275,19 @@ game SUBROUTINE game
 	STA NUSIZ1
 
 .obstacle_reset_done
-	JMP .end_frame_triage
+	JMP .end_vblank_triage
 
 .bird_collision
 	; TODO: better collision handling
 	BRK
 
-	; END - FRAME - OBSTACLES
+	; END - VBLANK - COLLISIONS
 	; -------------
 
 
 	; -------------
-	; FRAME - PLAYER SPRITE
-.frame_player_sprite
+	; VBLANK - PLAYER SPRITE
+.vblank_player_sprite
 	; check fire button
 	LDA INPT4
 	BMI .do_flight_anim
@@ -293,7 +296,11 @@ game SUBROUTINE game
 
 	; change position of next obstacle - to save precious cycles
 	; we've deferred limiting the pointer to the overscan kernel
-	INC OBSTACLE_TOP_POINTER
+	; NOTE: this is okay because we only reference NEXT_OBSTACLE
+	; in the VBLANK - here and in "VBLANK - COLLISIONS". the overscan
+	; kernel will have run at least once before we next reference the
+	; variable
+	INC NEXT_OBSTACLE
 
 	; do nothing if fire is being held from last frame
 	LDX FIRE_HELD
@@ -397,10 +404,10 @@ game SUBROUTINE game
 .fly_end
 	; fall through to end_frame_triage
 
-	; END - FRAME - PLAYER SPRITE
+	; END - VBLANK - PLAYER SPRITE
 	; -------------
 
-.end_frame_triage
+.end_vblank_triage
 	; reset collision flags every frame
 	STA CXCLR
 
@@ -522,9 +529,9 @@ game SUBROUTINE game
 
 .precalc_obstacle_0
 	LDA #$2										; 2
-	CPX OBSTACLE_0_T					; 3
+	CPX OB_0_START						; 3
 	BCC .obstacle_0_done			; 2/3
-	CPX OBSTACLE_0_B					; 3
+	CPX OB_0_END							; 3
 	BCS .obstacle_0_done			; 2/3
 	LDA #$0										; 2
 .obstacle_0_done
@@ -532,9 +539,9 @@ game SUBROUTINE game
 
 .precalc_obstacle_1
 	LDA #$2										; 2
-	CPX OBSTACLE_1_T					; 3
+	CPX OB_1_START						; 3
 	BCC .obstacle_1_done			; 2/3
-	CPX OBSTACLE_1_B					; 3
+	CPX OB_1_END							; 3
 	BCS .obstacle_1_done			; 2/3
 	LDA #$0										; 2
 .obstacle_1_done
@@ -578,13 +585,13 @@ game SUBROUTINE game
 .store_frame_cycle
 	STX FRAME_CYCLE
 
-	; limit OBSTACLE_TOP_POINTER to maximum value
-	LDY OBSTACLE_TOP_POINTER
-	CPY #OBSTACLE_TOP_MAX
-	BCC .limit_obstacle_top
+	; limit NEXT_OBSTACLE to maximum value
+	LDY NEXT_OBSTACLE
+	CPY #OBSTACLES_CT
+	BCC .limit_obstacle_bott
 	LDY #$0
-.limit_obstacle_top
-	STY OBSTACLE_TOP_POINTER
+	STY NEXT_OBSTACLE
+.limit_obstacle_bott
 
 	OVERSCAN_KERNEL_END
 
