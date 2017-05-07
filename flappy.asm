@@ -4,7 +4,7 @@
 	include macro.h
 	include vcs_extra.h
 
-; tunables 
+; program tunables 
 ; TODO: alter these according to console difficulty setting
 
 OBSTACLE_SPEED		= $10
@@ -20,7 +20,16 @@ OBSTACLE_DISAPPEAR_SPEED = $20
 
 ; program constants
 
-BACKGROUND_COLOR		=	$C0
+; screen boundaries for bird sprite
+BIRD_HIGH	=	PLAY_AREA_SCANLINES
+BIRD_LOW	=	$10
+
+; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
+FLY_CLIMB_START_FRAME	=		$0
+FLY_DIVE_START_FRAME	=		$FF
+
+BIRD_INIT				=	BIRD_HIGH
+FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT			=	$3
@@ -28,17 +37,13 @@ VBLANK_CYCLE_SPRITE			=	$1
 VBLANK_CYCLE_OBSTACLES	=	$2
 VBLANK_CYCLE_SPARE			=	$3
 
-; screen boundaries for bird sprite
-BIRD_HIGH	=		$C0
-BIRD_LOW	=		$10
+; visible display area
+FOLIAGE_SCANLINES = $20
+PLAY_AREA_SCANLINES = VISIBLE_SCANLINES - FOLIAGE_SCANLINES
 
-; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_CLIMB_START_FRAME	=		$0
-FLY_DIVE_START_FRAME	=		$FF
-
-BIRD_INIT				=	$BF
-FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
-
+; colours
+BACKGROUND_COLOR		=	$C2
+FOLIAGE_COLOR				= $C0
 
 ; data - variables
 	SEG.U RAM 
@@ -49,7 +54,10 @@ BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
-; existing obstacles
+; value for next foliage (playfield) - points to FOLIAGE
+NEXT_FOLIAGE				ds 1
+
+; bstacles
 OB_0_START					ds 1
 OB_0_END						ds 1
 OB_1_START					ds 1
@@ -75,13 +83,17 @@ SPRITES
 SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40 
 SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
 SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
-SPRITE_LINES				.byte	7
+SPRITE_LINES				=	7
 ; NOTE: first FF in each sprite is a boundry byte - value is unimportant
 
 ; table of obstacles (the lower the number, the lower the obstacle)
 OBSTACLES				HEX 20 30 40 50 60 70 80
 OBSTACLES_CT		= 7		; counting from 0
 
+; foliage - playfield data
+FOLIAGE	.byte %01100000, %10011010, %0011010, %10010000, %00110101, %1101001, %01010000, %01010111, %0011010, %10110000, %01110101
+FOLIAGE_CT	= 11
+SCAN_LINES_PER_STATUS_LINE = FOLIAGE_SCANLINES / 4	
 
 ; ----------------------------------
 ; SETUP
@@ -116,6 +128,18 @@ game_init SUBROUTINE game_init
 	LDA #OBSTACLE_WIDTH
 	STA NUSIZ0
 	STA NUSIZ1
+
+	; colours
+	LDA #BACKGROUND_COLOR
+	STA	COLUBK
+	LDA #FOLIAGE_COLOR
+	STA COLUPF
+	LDA #0
+	STA NEXT_FOLIAGE
+
+	; playfield priority - foliage in front of obstacles
+	LDA #$4
+	STA CTRLPF
 
 	; beginning obstacles
 	LDY #$3
@@ -203,7 +227,15 @@ game_vblank SUBROUTINE game_vblank
 
 
 	; -------------
-	; GAME - VBLANK - SPARE
+	; GAME - VBLANK - FOLIAGE
+
+	LDY NEXT_FOLIAGE
+	INY
+	CPY FOLIAGE_CT
+	BCC .foliage_updated
+	LDY #0
+.foliage_updated
+	STY NEXT_FOLIAGE
 
 	JMP .end_vblank_triage
 
@@ -409,20 +441,14 @@ game_vblank SUBROUTINE game_vblank
 
 	; setup display kernel
 
-	; set background colour
-	LDA #BACKGROUND_COLOR
-	STA	COLUBK
+	; X register will contain the current scanline for the duration of the display kernal
+	; starting with FOLIAGE_SCANLINES and then PLAY_AREA_SCANLINES, loaded later
+	LDX	#FOLIAGE_SCANLINES
+	LDY #0
 
-	; first sprite line should be empty ie. 
-	;		LDA #%0
-	;		STA BIRD_DRAW
-	; is implied
-
-	; preload Y register with number of sprite lines
-	LDY SPRITE_LINES
-
-	; X register will now contain the current scanline for the duration of the display kernal
-	LDX	#VISIBLE_SCANLINES
+	; turn off obstacles
+	STY ENAM0
+	STY ENAM1
 
 	; set up horizontal movement
 	STA WSYNC
@@ -433,15 +459,72 @@ game_vblank SUBROUTINE game_vblank
 
 
 ; ----------------------------------
-; GAME - DISPLAY
+; GAME - DISPLAY - FOLIAGE
+
+foliage SUBROUTINE foliage
+	LDY NEXT_FOLIAGE
+
+.display_foliage
+	; we're moving the WSYNC to the other end of the loop
+	; this way, we don't "lose" a scanline at the top of the screen
+	; the disadvatange is that we use 3 cycles in every hblank in the
+	; status line. the PLAY AREA subroutine, by contrast, loops (calls JMP)
+	; before the WSYNC
+
+	TXA												; 2
+	AND #%00000011						; 2
+	BNE .next_scanline
+
+	LDA FOLIAGE,Y
+	STA PF0
+	INY
+	LDA FOLIAGE,Y
+	STA PF1
+	INY
+	LDA FOLIAGE,Y
+	STA PF2
+
+	INY
+	CPY #FOLIAGE_CT
+	BNE .next_scanline
+	LDY #$0
+
+.next_scanline
+	; start drawing obstacles if we're halfway through the foliage area
+	CPX #FOLIAGE_SCANLINES / 2
+	BNE .obstacle_ignore
+	LDA #$2
+	STA ENAM0
+	STA ENAM1
+
+.obstacle_ignore
+	DEX												; 2
+	BEQ game_play_area				; 2/3
+	STA WSYNC
+	JMP .display_foliage			; 3
+
+
+; ----------------------------------
+; GAME - DISPLAY - PLAY AREA
+
+game_play_area SUBROUTINE game_play_area
+	LDA #0
+	STA PF0
+	STA PF1
+	STA PF2
+	LDX #PLAY_AREA_SCANLINES
+	LDY #SPRITE_LINES
+
+	; first sprite line should be empty ie. 
+	;		LDA #%0
+	;		STA BIRD_DRAW
+	; is implied
 
 ; X register contain the current scanline for the duration of the display kernal
 
 ; Y register contains number of SPRITE_LINES remaining
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; to set the sprite line
-
-game_play_area SUBROUTINE game_play_area
 
 ; -----------------------
 .display_bird
