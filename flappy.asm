@@ -9,11 +9,9 @@
 
 OBSTACLE_SPEED		= $10
 OBSTACLE_WINDOW		= $20
-
 CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
 CLIMB_FRAMES			=	$5
 GLIDE_FRAMES			=	CLIMB_FRAMES + $2
-
 
 
 ; program constants
@@ -22,28 +20,32 @@ GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 BIRD_HIGH	=	PLAY_AREA_SCANLINES
 BIRD_LOW	=	$10
 
+; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
+; - last four bits set the player sprite size
 OBSTACLE_WIDTH					= %00110101
 
-OBSTACLE_EXIT_SPEED		= $20
-OBSTACLE_EXIT_WIDTH		= %00000101
+; speed/width of obstacle when it's being reset
+; prevents ugly graphical glitch
+OBSTACLE_EXIT_SPEED			= $20
+OBSTACLE_EXIT_WIDTH			= %00100101
 
 ; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_CLIMB_START_FRAME	=		$0
-FLY_DIVE_START_FRAME	=		$FF
+FLY_CLIMB_START_FRAME	=	$0
+FLY_DIVE_START_FRAME	=	$FF
 
-BIRD_INIT				=	BIRD_HIGH
-FLY_FRAME_INIT	=	FLY_DIVE_START_FRAME
+BIRD_POS_INIT					=	BIRD_HIGH
+FLY_FRAME_INIT				=	FLY_DIVE_START_FRAME
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT			=	$3
 VBLANK_CYCLE_SPRITE			=	$1
 VBLANK_CYCLE_OBSTACLES	=	$2
-VBLANK_CYCLE_SPARE			=	$3
+VBLANK_CYCLE_FOLIAGE		=	$3
 
 ; visible display area
-FOLIAGE_SCANLINES = $20
-FOREST_FLOOR_SCANLINES = $03
-PLAY_AREA_SCANLINES = VISIBLE_SCANLINES - FOLIAGE_SCANLINES
+FOLIAGE_SCANLINES				= $20
+FOREST_FLOOR_SCANLINES	= $03
+PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES
 
 ; colours
 BACKGROUND_COLOR		=	$C2
@@ -56,6 +58,7 @@ FOREST_FLOOR_LEAVES = $22
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 VBLANK_CYCLE				ds 1
+PAUSE_COLLISIONS	  ds 1	; flag: $00 = no pause; $FF = paused
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
@@ -120,10 +123,7 @@ game_init SUBROUTINE game_init
 	LDA #VBLANK_CYCLE_COUNT
 	STA VBLANK_CYCLE
 
-	LDA INPT4
-	STA FIRE_HELD
-
-	LDA #BIRD_INIT
+	LDA #BIRD_POS_INIT
 	STA BIRD_POS
 
 	LDA #FLY_FRAME_INIT
@@ -150,11 +150,11 @@ game_init SUBROUTINE game_init
 	LDA #$4
 	STA CTRLPF
 
-	; kickstart foliage bit-pump
+	; kickstart foliage
 	LDA #0
 	STA NEXT_FOLIAGE
 
-	; kickstart obstacle bit-pump
+	; kickstart obstacle
 	LDY #$3
 	LDA OBSTACLES,Y
 	STA OB_0_START
@@ -183,18 +183,13 @@ game_init SUBROUTINE game_init
 
 	; reset sprite objects to leftmost of the screen
 	; we could use the NEXT_3_CYCLES_IS_SCREEN_LEFT macro
-	; but resettting anywhere in the horizontal blank will have the
+	; but resettting anywhere in the HBLANK will have the
 	; same effect
 	STA RESP0
 	STA RESP1
-	STA RESBL
 
-.draw_ball
-	; fine tune positioning of the ball
-	LDA #$21
-	STA HMBL
-	STA WSYNC
-	STA HMOVE
+	; position obstacle trigger (ball) at right most screen edge
+	POSITION_RESET_SCREEN_RIGHT RESBL
 
 	; place obstacle 1 (missile 1) at right most screen edge
 	POSITION_RESET_SCREEN_RIGHT RESM1
@@ -237,7 +232,7 @@ game_vblank SUBROUTINE game_vblank
 	BEQ .vblank_player_sprite
 	CPX #VBLANK_CYCLE_OBSTACLES
 	BEQ .vblank_collisions
-
+	; CPX #VBLANK_CYCLE_FOLIAGE is implied
 
 	; -------------
 	; GAME - VBLANK - FOLIAGE
@@ -269,7 +264,8 @@ game_vblank SUBROUTINE game_vblank
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
-	; a frame has occurred without obstacle collision - reset speed and size of both obstacles (missiles)
+	; a frame has occurred without obstacle collision
+	; reset speed and width of obstacles
 	LDA #OBSTACLE_SPEED
 	STA HMM0
 	STA HMM1
@@ -291,11 +287,11 @@ game_vblank SUBROUTINE game_vblank
 	STA OB_0_END
 
 	; increase speed / decrease size of obstacle temporarily
-	; prevents ugly graphical glitch
 	LDA #OBSTACLE_EXIT_SPEED
 	STA HMM0
 	LDA #OBSTACLE_EXIT_WIDTH
 	STA NUSIZ0
+
 	JMP .obstacle_reset_done
 
 .reset_obstacle_1
@@ -309,7 +305,6 @@ game_vblank SUBROUTINE game_vblank
 	STA OB_1_END
 
 	; increase speed / decrease size of obstacle temporarily
-	; prevents ugly graphical glitch
 	LDA #OBSTACLE_EXIT_SPEED
 	STA HMM1
 	LDA #OBSTACLE_EXIT_WIDTH
@@ -487,16 +482,12 @@ game_vblank SUBROUTINE game_vblank
 
 foliage SUBROUTINE foliage
 
-.display_foliage
-	; we're moving the WSYNC to the other end of the loop
-	; this way, we don't "lose" a scanline at the top of the screen
-	; the disadvatange is that we use 3 cycles in every hblank in the
-	; status line. the game_play_area subroutine, by contrast, loops (calls JMP)
-	; before the WSYNC
-	STA WSYNC
+; X register contains the number of FOLIAGE_SCANLINES remaining
 
-	TXA												; 2
-	AND #%00000011						; 2
+.display_foliage
+
+	TXA
+	AND #%00000011
 	BNE .next_scanline
 
 	LDA FOLIAGE,Y
@@ -518,6 +509,7 @@ foliage SUBROUTINE foliage
 .next_scanline
 	DEX												; 2
 	BEQ game_play_area				; 2/3
+	STA WSYNC
 	JMP .display_foliage			; 3
 
 
@@ -543,7 +535,7 @@ game_play_area SUBROUTINE game_play_area
 	LDX #PLAY_AREA_SCANLINES
 	LDY #SPRITE_LINES
 
-; X register contain the current scanline for the duration of the display kernal
+; X register contains the number of PLAY_AREA_SCANLINES remaining
 
 ; Y register contains number of SPRITE_LINES remaining
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
