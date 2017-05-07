@@ -39,11 +39,15 @@ VBLANK_CYCLE_SPARE			=	$3
 
 ; visible display area
 FOLIAGE_SCANLINES = $20
+FOREST_FLOOR_SCANLINES = $03
 PLAY_AREA_SCANLINES = VISIBLE_SCANLINES - FOLIAGE_SCANLINES
 
 ; colours
 BACKGROUND_COLOR		=	$C2
+OBSTACLE_COLOR			= $E0
 FOLIAGE_COLOR				= $C0
+FOREST_FLOOR_COLOR	= $20
+FOREST_FLOOR_LEAVES = $22
 
 ; data - variables
 	SEG.U RAM 
@@ -125,37 +129,37 @@ game_init SUBROUTINE game_init
 	LDA #>SPRITES
 	STA SPRITE_ADDRESS+1
 
+	; colours
+	LDA #OBSTACLE_COLOR
+	STA COLUP0
+	STA COLUP1
+
+	; width of obstacles
 	LDA #OBSTACLE_WIDTH
 	STA NUSIZ0
 	STA NUSIZ1
-
-	; colours
-	LDA #BACKGROUND_COLOR
-	STA	COLUBK
-	LDA #FOLIAGE_COLOR
-	STA COLUPF
-	LDA #0
-	STA NEXT_FOLIAGE
 
 	; playfield priority - foliage in front of obstacles
 	LDA #$4
 	STA CTRLPF
 
-	; beginning obstacles
+	; kickstart foliage bit-pump
+	LDA #0
+	STA NEXT_FOLIAGE
+
+	; kickstart obstacle bit-pump
 	LDY #$3
 	LDA OBSTACLES,Y
 	STA OB_0_START
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OB_0_END
-
 	LDY #$6
 	LDA OBSTACLES,Y
 	STA OB_1_START
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OB_1_END
-
 	STY NEXT_OBSTACLE
 
 .position_elements
@@ -175,8 +179,6 @@ game_init SUBROUTINE game_init
 	STA RESBL
 
 .draw_ball
-	; the ball will be enabled throughout the game
-	STA ENABL
 	; fine tune positioning of the ball
 	LDA #$21
 	STA HMBL
@@ -238,7 +240,6 @@ game_vblank SUBROUTINE game_vblank
 	STY NEXT_FOLIAGE
 
 	JMP .end_vblank_triage
-
 
 	; -------------
 	; GAME - VBLANK - COLLISIONS
@@ -450,6 +451,17 @@ game_vblank SUBROUTINE game_vblank
 	STY ENAM0
 	STY ENAM1
 
+	; ball is enabled until forest floor subroutine
+	LDA #$2
+	STA ENABL
+
+	; we have the time so set up foliage subroutine
+	LDA #BACKGROUND_COLOR
+	STA	COLUBK
+	LDA #FOLIAGE_COLOR
+	STA COLUPF
+	LDY NEXT_FOLIAGE
+
 	; set up horizontal movement
 	STA WSYNC
 	STA HMOVE
@@ -462,7 +474,6 @@ game_vblank SUBROUTINE game_vblank
 ; GAME - DISPLAY - FOLIAGE
 
 foliage SUBROUTINE foliage
-	LDY NEXT_FOLIAGE
 
 .display_foliage
 	; we're moving the WSYNC to the other end of the loop
@@ -470,6 +481,7 @@ foliage SUBROUTINE foliage
 	; the disadvatange is that we use 3 cycles in every hblank in the
 	; status line. the PLAY AREA subroutine, by contrast, loops (calls JMP)
 	; before the WSYNC
+	STA WSYNC
 
 	TXA												; 2
 	AND #%00000011						; 2
@@ -484,23 +496,16 @@ foliage SUBROUTINE foliage
 	LDA FOLIAGE,Y
 	STA PF2
 
-	INY
-	CPY #FOLIAGE_CT
-	BNE .next_scanline
-	LDY #$0
-
-.next_scanline
 	; start drawing obstacles if we're halfway through the foliage area
 	CPX #FOLIAGE_SCANLINES / 2
-	BNE .obstacle_ignore
+	BNE .next_scanline
 	LDA #$2
 	STA ENAM0
 	STA ENAM1
 
-.obstacle_ignore
+.next_scanline
 	DEX												; 2
 	BEQ game_play_area				; 2/3
-	STA WSYNC
 	JMP .display_foliage			; 3
 
 
@@ -508,17 +513,23 @@ foliage SUBROUTINE foliage
 ; GAME - DISPLAY - PLAY AREA
 
 game_play_area SUBROUTINE game_play_area
+	; set up play area
+	; NOTE: there has not been a WSYNC since the beginning of the last ".display_foliage" loop
+	; there's another one at the beginning of ".display_bird". none of the following should
+	; cause any visual artefacts
+
+	; turn off ball
 	LDA #0
+	STA ENABL
+
+	; no playfield in the play area
 	STA PF0
 	STA PF1
 	STA PF2
+
+	; prepare for loop
 	LDX #PLAY_AREA_SCANLINES
 	LDY #SPRITE_LINES
-
-	; first sprite line should be empty ie. 
-	;		LDA #%0
-	;		STA BIRD_DRAW
-	; is implied
 
 ; X register contain the current scanline for the duration of the display kernal
 
@@ -622,7 +633,7 @@ game_play_area SUBROUTINE game_play_area
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												; 2
-	BEQ game_overscan					; 2/3
+	BEQ forest_floor					; 2/3
 
 	; interlace sprite and obstacle drawing
 	TXA												; 2
@@ -630,6 +641,47 @@ game_play_area SUBROUTINE game_play_area
 	BEQ .display_bird	  			; 2/3
 	JMP .display_obstacle			; 3
 ; -----------------------
+
+; ----------------------------------
+; GAME - DISPLAY - FOREST_FLOOR 
+
+forest_floor SUBROUTINE forest_floor
+	STA WSYNC
+
+	; change colour of playfield to simulate leaves
+	; we'll change background colour in the next HBLANK
+	LDA #FOREST_FLOOR_LEAVES
+	STA COLUPF
+
+	; set up forest floor subroutine
+	LDX #FOREST_FLOOR_SCANLINES
+	LDY NEXT_FOLIAGE
+
+	; preload accumulator with 0 in time to disable obstacles in the next HBLANK
+	LDA #$0
+
+.display_forest_floor
+	; NOTE: this only runs once
+
+	STA WSYNC
+	STA ENAM0
+	STA ENAM1
+	LDA #FOREST_FLOOR_COLOR
+	STA COLUBK
+	LDA FOLIAGE,Y
+	STA PF0
+	INY
+	LDA FOLIAGE,Y
+	STA PF1
+	INY
+	LDA FOLIAGE,Y
+	STA PF2
+
+.next_scanline
+	DEX													; 2
+	BEQ game_overscan						; 2/3
+	STA WSYNC
+	JMP .next_scanline					; 3
 
 
 ; ----------------------------------
