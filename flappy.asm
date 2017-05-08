@@ -48,9 +48,9 @@ FOREST_FLOOR_SCANLINES	= $03
 PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES
 
 ; colours
-BACKGROUND_COLOR		=	$C2
+BACKGROUND_COLOR		=	$D2
 OBSTACLE_COLOR			= $00
-FOLIAGE_COLOR				= $C0
+FOLIAGE_COLOR				= $D0
 FOREST_FLOOR_COLOR	= $20
 FOREST_FLOOR_LEAVES = $22
 
@@ -105,9 +105,11 @@ OBSTACLES				HEX 20 30 40 50 60 70 80
 OBSTACLES_CT		= 7		; counting from 0
 
 ; foliage - playfield data
-FOLIAGE	.byte %01100000, %10011010, %0011010, %10010000, %00110101, %1101001, %01010000, %01010111, %0011010, %10110000, %01110101
-FOLIAGE_CT	= 11
-SCAN_LINES_PER_STATUS_LINE = FOLIAGE_SCANLINES / 5	
+FOLIAGE
+FOLIAGE_1	.byte %01100000, %10011010, %0011010, %10010000, %00110101, %1101001, %01010000, %01010110, %001101011, %10110000
+FOLIAGE_2	.byte %10100110, %00010110, %1000110, %10011010, %00111010, %0010011, %01101101, %01100110, %010110001, %10110101
+FOLIAGE_CT	= 5
+SCANLINES_PER_FOLIAGE = FOLIAGE_SCANLINES / 7
 
 ; ----------------------------------
 ; SETUP
@@ -197,12 +199,6 @@ game_init SUBROUTINE game_init
 	; place obstacle 0 (missile 1) at screen middle
 	POSITION_RESET_SCREEN_MIDDLE RESM0
 
-	; reset all horizontal movement before setting the speed of flight (which will
-	; persist throughout the game)
-	; NOTE: we need to wait at least 24 machine cycles since the ball HMOVE above
-	; or the motion will not have occurred
-	STA HMCLR
-	
 	; speed of flight
 	LDA #OBSTACLE_SPEED
 	STA HMM0
@@ -239,7 +235,7 @@ game_vblank SUBROUTINE game_vblank
 
 	LDY NEXT_FOLIAGE
 	INY
-	CPY FOLIAGE_CT
+	CPY #FOLIAGE_CT
 	BCC .foliage_updated
 	LDY #0
 .foliage_updated
@@ -449,12 +445,8 @@ game_vblank SUBROUTINE game_vblank
 
 	; setup display kernel
 
-	; X register will contain the current scanline for the duration of the display kernal
-	; starting with FOLIAGE_SCANLINES and then PLAY_AREA_SCANLINES, loaded later
-	LDX	#FOLIAGE_SCANLINES
-	LDY #0
-
 	; turn off obstacles
+	LDY #$0
 	STY ENAM0
 	STY ENAM1
 
@@ -468,6 +460,10 @@ game_vblank SUBROUTINE game_vblank
 	LDA #FOLIAGE_COLOR
 	STA COLUPF
 	LDY NEXT_FOLIAGE
+
+	; X register will contain the current scanline for the duration of the display kernal
+	; starting with FOLIAGE_SCANLINES and then PLAY_AREA_SCANLINES, loaded later
+	LDX	#FOLIAGE_SCANLINES
 
 	; set up horizontal movement
 	STA WSYNC
@@ -484,11 +480,20 @@ foliage SUBROUTINE foliage
 
 ; X register contains the number of FOLIAGE_SCANLINES remaining
 
+; Y register contains the NEXT_FOLIAGE value
+; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+; into FOLIAGE space to set the playfield values
+
+; A should be zero after VBLANK_KERNEL_END
+
 .display_foliage
 
-	TXA
-	AND #%00000011
+	; test accumulator (SCANLINES_PER_FOLIAGE)
+	CMP #$0
 	BNE .next_scanline
+
+	; we're going to clobber the accumulator but that's okay, we're
+	; going to reset it after setting the playfield
 
 	LDA FOLIAGE,Y
 	STA PF0
@@ -501,12 +506,20 @@ foliage SUBROUTINE foliage
 
 	; start drawing obstacles if we're halfway through the foliage area
 	CPX #FOLIAGE_SCANLINES / 2
-	BNE .next_scanline
+	BNE .reset_accumulator
 	LDA #$2
 	STA ENAM0
 	STA ENAM1
 
+.reset_accumulator
+	LDA #SCANLINES_PER_FOLIAGE
+
 .next_scanline
+
+	; decrement accumulator (SCANLINES_PER_FOLIAGE)
+	SEC
+	SBC #$1
+
 	DEX												; 2
 	BEQ game_play_area				; 2/3
 	STA WSYNC
@@ -663,6 +676,12 @@ forest_floor SUBROUTINE forest_floor
 
 	; preload accumulator with 0 in time to disable obstacles in the next HBLANK
 	LDA #$0
+
+; X register contains the number of FOREST_FLOOR_SCANLINES remaining
+
+; Y register contains the NEXT_FOLIAGE value
+; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+; into FOLIAGE space to set the playfield values
 
 .display_forest_floor
 	; NOTE: this only runs once
