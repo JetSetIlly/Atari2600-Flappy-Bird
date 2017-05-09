@@ -38,14 +38,16 @@ FLY_FRAME_INIT				=	FLY_DIVE_START_FRAME
 
 ; how often (in frames) each vblank kernel should run
 VBLANK_CYCLE_COUNT			=	$3
-VBLANK_CYCLE_SPRITE			=	$1
+VBLANK_CYCLE_SPRITE			=	$3
 VBLANK_CYCLE_OBSTACLES	=	$2
-VBLANK_CYCLE_FOLIAGE		=	$3
+VBLANK_CYCLE_FOLIAGE		=	$1
 
 ; visible display area
 FOLIAGE_SCANLINES				= $20
 FOREST_FLOOR_SCANLINES	= $03
 PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES
+
+SCANLINES_PER_FOLIAGE = FOLIAGE_SCANLINES / 8
 
 ; colours
 BACKGROUND_COLOR		=	$D2
@@ -94,22 +96,26 @@ HISCORE								ds 1
 
 ; sprite data
 SPRITES
-SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40 
-SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
-SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
+;SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40 
+;SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
+;SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
+SPRITE_WINGS_UP			HEX	FF 00 00 00 7E 74 60 40 
+SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7E 64 00 00
+SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7E 04 00 00
 SPRITE_LINES				=	7
 ; NOTE: first FF in each sprite is a boundry byte - value is unimportant
 
 ; table of obstacles (the lower the number, the lower the obstacle)
 OBSTACLES				HEX 20 30 40 50 60 70 80
-OBSTACLES_CT		= 7		; counting from 0
+OBSTACLES_CT		= 7
 
 ; foliage - playfield data
+; (see ".display_foliage" subroutine for full and laboured explanation)
 FOLIAGE
-FOLIAGE_1	.byte %01100000, %10011010, %0011010, %10010000, %00110101, %1101001, %01010000, %01010110, %001101011, %10110000
-FOLIAGE_2	.byte %10100110, %00010110, %1000110, %10011010, %00111010, %0010011, %01101101, %01100110, %010110001, %10110101
-FOLIAGE_CT	= 5
-SCANLINES_PER_FOLIAGE = FOLIAGE_SCANLINES / 7
+FOLIAGE_1	.byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001, %01010000, %01010110, %00110011, %10101000
+FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101
+FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
+FOLIAGE_CHAOS_CYCLE	= 7
 
 ; ----------------------------------
 ; SETUP
@@ -235,7 +241,7 @@ game_vblank SUBROUTINE game_vblank
 
 	LDY NEXT_FOLIAGE
 	INY
-	CPY #FOLIAGE_CT
+	CPY #FOLIAGE_CHAOS_CYCLE
 	BCC .foliage_updated
 	LDY #0
 .foliage_updated
@@ -478,13 +484,26 @@ game_vblank SUBROUTINE game_vblank
 
 foliage SUBROUTINE foliage
 
+; A should be zero after VBLANK_KERNEL_END
+
 ; X register contains the number of FOLIAGE_SCANLINES remaining
 
 ; Y register contains the NEXT_FOLIAGE value
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; into FOLIAGE space to set the playfield values
-
-; A should be zero after VBLANK_KERNEL_END
+;
+; we increase Y after every time we access it (after every change to the playfield - 3 per cycle)
+; in this subroutine: there are FOLIAGE_SCANLINES
+; scanlines in this part of the display; the main body of the routine is run every
+; SCANLINES_PER_FOLIAGE; so:
+;
+;			max foliage index = NEXT_FOLIAGE + (FOLIAGE_SCANLINES / SCANLINES_PER_FOLIAGE * 3) - 1
+;
+; as is, the routine would draw the same foliage every frame. to introduce some randomness,
+; NEXT_FOLIAGE is increased by one every VBLANK_CYCLE frames in the vblank kernel. the maximum
+; vaulue of NEXT_FOLIAGE at the start of the .display_foliage subroutine is therefore:
+;
+;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - mex_foliage_index
 
 .display_foliage
 
@@ -503,6 +522,7 @@ foliage SUBROUTINE foliage
 	INY
 	LDA FOLIAGE,Y
 	STA PF2
+	INY
 
 	; start drawing obstacles if we're halfway through the foliage area
 	CPX #FOLIAGE_SCANLINES / 2
