@@ -22,12 +22,15 @@ BIRD_LOW	=	$10
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
-OBSTACLE_WIDTH					= %00110101
+OBSTACLE_WIDTH				= %00110000		; octuple width
+BIRD_SIZE							= %00000101   ; single instance, double width
+NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_SIZE
 
 ; speed/width of obstacle when it's being reset
 ; prevents ugly graphical glitch
 OBSTACLE_EXIT_SPEED			= $20
-OBSTACLE_EXIT_WIDTH			= %00100101
+OBSTACLE_EXIT_WIDTH		= %00000000		; single width
+EXIT_NUSIZ_VAL				= OBSTACLE_EXIT_WIDTH | BIRD_SIZE
 
 ; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_CLIMB_START_FRAME	=	$0
@@ -96,9 +99,6 @@ HISCORE								ds 1
 
 ; sprite data
 SPRITES
-;SPRITE_WINGS_UP			HEX	FF 00 00 00 7F 72 60 40 
-;SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7F 62 00 00
-;SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7F 02 00 00
 SPRITE_WINGS_UP			HEX	FF 00 00 00 7E 74 60 40 
 SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7E 64 00 00
 SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7E 04 00 00
@@ -106,8 +106,8 @@ SPRITE_LINES				=	7
 ; NOTE: first FF in each sprite is a boundry byte - value is unimportant
 
 ; table of obstacles (the lower the number, the lower the obstacle)
-OBSTACLES				HEX 20 30 40 50 60 70 80
-OBSTACLES_CT		= 7
+OBSTACLES				HEX 20 30 40 50 60 70
+OBSTACLES_CT		= 6
 
 ; foliage - playfield data
 ; (see ".display_foliage" subroutine for full and laboured explanation)
@@ -128,48 +128,60 @@ setup SUBROUTINE setup
 ; GAME INITIALISATION
 
 game_init SUBROUTINE game_init
+	; memory is initialised to zero - set initial that need to be non0-zero
 	LDA #VBLANK_CYCLE_COUNT
 	STA VBLANK_CYCLE
-
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
-
 	LDA #FLY_FRAME_INIT
 	STA FLY_FRAME
 
-	; sprite to use in display kernel
+	; obstacles are on by default
+	LDA #$2
+	STA OBSTACLE_0_DRAW
+	STA OBSTACLE_1_DRAW
+
+	; ball is enabled throughout the game
+	STA ENABL
+
+
+	; the following system registers remain (mostly) constant throughout game
+
+	; obstacle colour
+	LDA #OBSTACLE_COLOR
+	STA COLUP0
+	STA COLUP1
+
+	; playfield priority - foliage in front of obstacles
+	LDA #$4
+	STA CTRLPF
+
+	; width of obstacles and player size
+	LDA #NORMAL_NUSIZ_VAL
+	STA NUSIZ0
+	STA NUSIZ1
+
+	; speed of flight
+	LDA #OBSTACLE_SPEED
+	STA HMM0
+	STA HMM1
+
+
+	; SPRITE_ADDRESS refers to players sprite to use in the current frame
 	LDA #<SPRITES
 	STA SPRITE_ADDRESS
 	; all sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
 	LDA #>SPRITES
 	STA SPRITE_ADDRESS+1
 
-	; colours
-	LDA #OBSTACLE_COLOR
-	STA COLUP0
-	STA COLUP1
-
-	; width of obstacles
-	LDA #OBSTACLE_WIDTH
-	STA NUSIZ0
-	STA NUSIZ1
-
-	; playfield priority - foliage in front of obstacles
-	LDA #$4
-	STA CTRLPF
-
-	; kickstart foliage
-	LDA #0
-	STA NEXT_FOLIAGE
-
-	; kickstart obstacle
+	; setup obstacle randomiser
 	LDY #$3
 	LDA OBSTACLES,Y
 	STA OB_0_START
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OB_0_END
-	LDY #$6
+	LDY #$5
 	LDA OBSTACLES,Y
 	STA OB_1_START
 	CLC
@@ -181,8 +193,8 @@ game_init SUBROUTINE game_init
 	LDA #$FF
 	STA SCORE
 
-.position_elements
-	; we only need to position elements once. we use the very first frame of the game sequence to do this.
+position_elements SUBROUTINE position_elements
+	; use the very first frame of the game sequence to position elements
 	STA WSYNC
 
 	; make sure beam is off
@@ -190,25 +202,26 @@ game_init SUBROUTINE game_init
 	STA VBLANK
 
 	; reset sprite objects to leftmost of the screen
-	; we could use the NEXT_3_CYCLES_IS_SCREEN_LEFT macro
+	; we could use the COURSE_POS_SCREEN_LEFT macro
 	; but resettting anywhere in the HBLANK will have the
 	; same effect
 	STA RESP0
 	STA RESP1
 
 	; position obstacle trigger (ball) at right most screen edge
-	POSITION_RESET_SCREEN_RIGHT RESBL
+	FINE_POS_SCREEN_RIGHT RESBL, 1
 
 	; place obstacle 1 (missile 1) at right most screen edge
-	POSITION_RESET_SCREEN_RIGHT RESM1
+	FINE_POS_SCREEN_RIGHT RESM1, 8 
+
+	; perform the fine tuning
+	ACTIVATE_FINE_TUNE
 
 	; place obstacle 0 (missile 1) at screen middle
-	POSITION_RESET_SCREEN_MIDDLE RESM0
+	COURSE_POS_SCREEN_MID RESM0
 
-	; speed of flight
-	LDA #OBSTACLE_SPEED
-	STA HMM0
-	STA HMM1
+	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
+	END_FINE_TUNE
 
 	; load frame cycle into X ready for beginning of vblank kernel
 	; -- we implicitly do the same at the end of the overscan kernel as a
@@ -271,7 +284,7 @@ game_vblank SUBROUTINE game_vblank
 	LDA #OBSTACLE_SPEED
 	STA HMM0
 	STA HMM1
-	LDA #OBSTACLE_WIDTH
+	LDA #NORMAL_NUSIZ_VAL
 	STA NUSIZ0
 	STA NUSIZ1
 
@@ -291,7 +304,7 @@ game_vblank SUBROUTINE game_vblank
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
 	STA HMM0
-	LDA #OBSTACLE_EXIT_WIDTH
+	LDA #EXIT_NUSIZ_VAL
 	STA NUSIZ0
 
 	JMP .obstacle_reset_done
@@ -309,7 +322,7 @@ game_vblank SUBROUTINE game_vblank
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
 	STA HMM1
-	LDA #OBSTACLE_EXIT_WIDTH
+	LDA #EXIT_NUSIZ_VAL
 	STA NUSIZ1
 
 .obstacle_reset_done
@@ -451,14 +464,10 @@ game_vblank SUBROUTINE game_vblank
 
 	; setup display kernel
 
-	; turn off obstacles
+	; turn off obstacles - we'll turn them on in the foliage subroutine
 	LDY #$0
 	STY ENAM0
 	STY ENAM1
-
-	; ball is enabled until game_play_area subroutine
-	LDA #$2
-	STA ENABL
 
 	; we have the time so set up foliage subroutine
 	LDA #BACKGROUND_COLOR
@@ -554,10 +563,6 @@ game_play_area SUBROUTINE game_play_area
 	; NOTE: there has not been a WSYNC since the beginning of the last ".display_foliage" loop
 	; there's another one at the beginning of ".display_bird". none of the following should
 	; cause any visual artefacts
-
-	; turn off ball
-	LDA #0
-	STA ENABL
 
 	; no playfield in the play area
 	STA PF0
@@ -703,12 +708,13 @@ forest_floor SUBROUTINE forest_floor
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; into FOLIAGE space to set the playfield values
 
-.display_forest_floor
-	; NOTE: this only runs once
-
 	STA WSYNC
+
+	; disable obstacles - we don't want the "trees" to extend into the forest floor
 	STA ENAM0
 	STA ENAM1
+
+	; define the forest floor playfield once per frame
 	LDA #FOREST_FLOOR_COLOR
 	STA COLUBK
 	LDA FOLIAGE,Y
@@ -720,6 +726,7 @@ forest_floor SUBROUTINE forest_floor
 	LDA FOLIAGE,Y
 	STA PF2
 
+	; wait for end of the forest floor ...
 .next_scanline
 	DEX													; 2
 	BEQ game_overscan						; 2/3
