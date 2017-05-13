@@ -1,4 +1,4 @@
-
+	
 	processor 6502
 	include vcs.h
 	include macro.h
@@ -12,7 +12,6 @@ OBSTACLE_WINDOW		= $20
 CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
 CLIMB_FRAMES			=	$5
 GLIDE_FRAMES			=	CLIMB_FRAMES + $2
-
 
 ; program constants
 
@@ -28,7 +27,7 @@ NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_SIZE
 
 ; speed/width of obstacle when it's being reset
 ; prevents ugly graphical glitch
-OBSTACLE_EXIT_SPEED			= $20
+OBSTACLE_EXIT_SPEED		= $20
 OBSTACLE_EXIT_WIDTH		= %00000000		; single width
 EXIT_NUSIZ_VAL				= OBSTACLE_EXIT_WIDTH | BIRD_SIZE
 
@@ -48,16 +47,19 @@ VBLANK_CYCLE_FOLIAGE		=	$1
 ; visible display area
 FOLIAGE_SCANLINES				= $20
 FOREST_FLOOR_SCANLINES	= $03
-PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES
+PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES - SCORING_SCANLINES
+SCORING_SCANLINES				= DIGIT_LINES
 
 SCANLINES_PER_FOLIAGE = FOLIAGE_SCANLINES / 8
 
 ; colours
 BACKGROUND_COLOR		=	$D2
-OBSTACLE_COLOR			= $00
+SPRITE_COLOR				= $00
 FOLIAGE_COLOR				= $D0
 FOREST_FLOOR_COLOR	= $20
-FOREST_FLOOR_LEAVES = $22
+FOREST_LEAVES_COLOR = $22
+SCORING_BACKGROUND	= $00
+SCORING_DIGITS			= $FF
 
 ; data - variables
 	SEG.U RAM 
@@ -92,6 +94,10 @@ BIRD_DRAW							ds 1
 SCORE									ds 1
 HISCORE								ds 1
 
+; base address of current number being drawn
+DIGIT_ADDRESS_0				ds 2
+DIGIT_ADDRESS_1				ds 2
+
 
 ; start of cart ROM
 	SEG
@@ -117,6 +123,22 @@ FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011
 FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
 FOLIAGE_CHAOS_CYCLE	= 7
 
+; digits - used for scoring
+DIGITS
+DIGIT_0	HEX 3C 24 24 24 3C
+DIGIT_1	HEX 08 08 08 18 08
+DIGIT_2	HEX 3C 20 18 04 3C
+DIGIT_3	HEX 3C 04 08 04 3C
+DIGIT_4	HEX 08 3C 28 20 20
+DIGIT_5	HEX 38 04 3C 20 3C
+DIGIT_6	HEX 3C 24 3C 20 20
+DIGIT_7	HEX 04 04 0C 04 3C
+DIGIT_8	HEX 3C 24 3C 24 3C
+DIGIT_9	HEX 04 3C 24 24 3C
+DIGIT_LINES	= 4
+DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
+
+
 ; ----------------------------------
 ; SETUP
 
@@ -128,7 +150,7 @@ setup SUBROUTINE setup
 ; GAME INITIALISATION
 
 game_init SUBROUTINE game_init
-	; memory is initialised to zero - set initial that need to be non0-zero
+	; memory is initialised to zero - set values that need to be non-zero
 	LDA #VBLANK_CYCLE_COUNT
 	STA VBLANK_CYCLE
 	LDA #BIRD_POS_INIT
@@ -136,43 +158,21 @@ game_init SUBROUTINE game_init
 	LDA #FLY_FRAME_INIT
 	STA FLY_FRAME
 
-	; obstacles are on by default
-	LDA #$2
-	STA OBSTACLE_0_DRAW
-	STA OBSTACLE_1_DRAW
-
-	; ball is enabled throughout the game
-	STA ENABL
-
-
-	; the following system registers remain (mostly) constant throughout game
-
-	; obstacle colour
-	LDA #OBSTACLE_COLOR
-	STA COLUP0
-	STA COLUP1
-
-	; playfield priority - foliage in front of obstacles
-	LDA #$4
-	STA CTRLPF
-
-	; width of obstacles and player size
-	LDA #NORMAL_NUSIZ_VAL
-	STA NUSIZ0
-	STA NUSIZ1
-
-	; speed of flight
-	LDA #OBSTACLE_SPEED
-	STA HMM0
-	STA HMM1
-
-
 	; SPRITE_ADDRESS refers to players sprite to use in the current frame
 	LDA #<SPRITES
 	STA SPRITE_ADDRESS
 	; all sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
 	LDA #>SPRITES
 	STA SPRITE_ADDRESS+1
+
+	; DIGIT_ADDRESS_0/1 refers to the current number being drawn
+	LDA #<DIGITS
+	STA DIGIT_ADDRESS_0
+	STA DIGIT_ADDRESS_1
+	; all sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
+	LDA #>DIGITS
+	STA DIGIT_ADDRESS_0+1
+	STA DIGIT_ADDRESS_1+1
 
 	; setup obstacle randomiser
 	LDY #$3
@@ -189,9 +189,28 @@ game_init SUBROUTINE game_init
 	STA OB_1_END
 	STY NEXT_OBSTACLE
 
-	; reset score - there's a false point awarded at the beginning because of the initial collision of obstacle 1
-	LDA #$FF
-	STA SCORE
+	; setup attributes that don't change during the game
+
+	; ball is enabled throughout the game
+	LDA #$2
+	STA ENABL
+
+	; the following system registers remain (mostly) constant throughout game
+
+	; playfield priority - foliage in front of obstacles
+	LDA #$4
+	STA CTRLPF
+
+	; width of obstacles and player size
+	LDA #NORMAL_NUSIZ_VAL
+	STA NUSIZ0
+	STA NUSIZ1
+
+	; speed of flight
+	LDA #OBSTACLE_SPEED
+	STA HMM0
+	STA HMM1
+
 
 position_elements SUBROUTINE position_elements
 	; use the very first frame of the game sequence to position elements
@@ -201,24 +220,17 @@ position_elements SUBROUTINE position_elements
 	LDA	#2
 	STA VBLANK
 
-	; reset sprite objects to leftmost of the screen
-	; we could use the COURSE_POS_SCREEN_LEFT macro
-	; but resettting anywhere in the HBLANK will have the
-	; same effect
-	STA RESP0
-	STA RESP1
-
 	; position obstacle trigger (ball) at right most screen edge
-	FINE_POS_SCREEN_RIGHT RESBL, 1
+	FINE_POS_SCREEN_RIGHT RESBL, "SINGLE"
 
 	; place obstacle 1 (missile 1) at right most screen edge
-	FINE_POS_SCREEN_RIGHT RESM1, 8 
+	POS_SCREEN_RIGHT RESM1, 0
 
 	; perform the fine tuning
 	ACTIVATE_FINE_TUNE
 
 	; place obstacle 0 (missile 1) at screen middle
-	COURSE_POS_SCREEN_MID RESM0
+	POS_SCREEN_MID RESM0, -1
 
 	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
 	END_FINE_TUNE
@@ -268,10 +280,10 @@ game_vblank SUBROUTINE game_vblank
 .vblank_collisions
 
 	; check bird collision
-	BIT CXM1P
-	BMI .bird_collision
-	BIT CXM0P
-	BVS .bird_collision
+	;BIT CXM1P
+	;BMI .bird_collision
+	;BIT CXM0P
+	;BVS .bird_collision
 
 	; check for collision of obstacles with backstop
 	BIT CXM0FB
@@ -326,15 +338,20 @@ game_vblank SUBROUTINE game_vblank
 	STA NUSIZ1
 
 .obstacle_reset_done
-	INC SCORE
+	; increase score -- using decimal addition
+	SED
+	LDA SCORE
+	CLC
+	ADC #$1
+	STA SCORE
+	CLD
 	JMP .end_vblank_triage
 
 .bird_collision
 	; TODO: better collision handling
 	BRK
 
-
-	; -------------
+	
 	; GAME - VBLANK - USER INPUT
 
 .vblank_player_sprite
@@ -463,6 +480,16 @@ game_vblank SUBROUTINE game_vblank
 	STA CXCLR
 
 	; setup display kernel
+
+	; reset sprite objects to leftmost of the screen
+	; we do this every frame because we use and move RESP0 in
+	; the scoring subroutine
+	POS_SCREEN_LEFT RESP0, 0
+
+	; reset colours
+	LDA #SPRITE_COLOR
+	STA COLUP0
+	STA COLUP1
 
 	; turn off obstacles - we'll turn them on in the foliage subroutine
 	LDY #$0
@@ -692,7 +719,7 @@ forest_floor SUBROUTINE forest_floor
 
 	; change colour of playfield to simulate leaves
 	; we'll change background colour in the next HBLANK
-	LDA #FOREST_FLOOR_LEAVES
+	LDA #FOREST_LEAVES_COLOR
 	STA COLUPF
 
 	; set up forest floor subroutine
@@ -729,16 +756,76 @@ forest_floor SUBROUTINE forest_floor
 	; wait for end of the forest floor ...
 .next_scanline
 	DEX													; 2
-	BEQ game_overscan						; 2/3
+	BEQ scoring									; 2/3
 	STA WSYNC
 	JMP .next_scanline					; 3
 
+; ----------------------------------
+; GAME - DISPLAY - SCORING 
+scoring SUBROUTINE scoring
+	STA WSYNC
+	LDA #0
+	STA PF0
+	STA PF0
+	STA PF1
+	STA PF2
+	LDA #SCORING_BACKGROUND
+	STA	COLUBK
+	LDA #SCORING_DIGITS
+	STA COLUP0
+	STA COLUP1
+
+	POS_SCREEN_RIGHT RESP0, 4
+	POS_SCREEN_RIGHT RESP1, 2
+
+	; get address of unit digit
+	LDA SCORE
+	AND #$0F
+	TAY
+	LDA DIGIT_TABLE,Y
+	STA DIGIT_ADDRESS_1
+
+	; get address of tens digit
+	LDA SCORE
+	ROR
+	ROR
+	ROR
+	ROR
+	AND #$0F
+	TAY
+	LDA DIGIT_TABLE,Y
+	STA DIGIT_ADDRESS_0
+
+	LDY #DIGIT_LINES
+
+
+; Y register contains number of DIGIT_LINES remaining
+; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+; to set the sprite line
+
+.scoring_loop
+	STA WSYNC
+	LDA (DIGIT_ADDRESS_1),Y
+	STA GRP1										; 3
+	LDA (DIGIT_ADDRESS_0),Y
+	STA GRP0										; 3
+
+.next_scanline
+	DEY													; 2
+	BMI .done_scoring						; 2/3
+	JMP .scoring_loop						; 3
+
+.done_scoring
+	STA WSYNC
+	LDA #0
+	STA GRP1
+	STA GRP0
 
 ; ----------------------------------
 ; GAME - OVERSCAN 
 
 game_overscan SUBROUTINE game_overscan
-	STA WSYNC									; 3
+	STA WSYNC	
 
 	OVERSCAN_KERNEL_SETUP
 
