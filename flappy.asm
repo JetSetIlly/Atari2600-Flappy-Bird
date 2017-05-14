@@ -47,8 +47,10 @@ VBLANK_CYCLE_FOLIAGE		=	$1
 ; visible display area
 FOLIAGE_SCANLINES				= $20
 FOREST_FLOOR_SCANLINES	= $03
-PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES - SCORING_SCANLINES
 SCORING_SCANLINES				= DIGIT_LINES
+
+WASTED_SCANLINES				= $05
+PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES - FOREST_FLOOR_SCANLINES - SCORING_SCANLINES - WASTED_SCANLINES
 
 SCANLINES_PER_FOLIAGE = FOLIAGE_SCANLINES / 8
 
@@ -99,9 +101,8 @@ DIGIT_ADDRESS_0				ds 2
 DIGIT_ADDRESS_1				ds 2
 
 
-; start of cart ROM
 	SEG
-	ORG $F000	
+	ORG $F000		; start of cart ROM
 
 ; sprite data
 SPRITES
@@ -112,7 +113,7 @@ SPRITE_LINES				=	7
 ; NOTE: first FF in each sprite is a boundry byte - value is unimportant
 
 ; table of obstacles (the lower the number, the lower the obstacle)
-OBSTACLES				HEX 20 30 40 50 60 70
+OBSTACLES				HEX 15 25 35 45 55 65
 OBSTACLES_CT		= 6
 
 ; foliage - playfield data
@@ -134,7 +135,7 @@ DIGIT_5	HEX 38 04 3C 20 3C
 DIGIT_6	HEX 3C 24 3C 20 20
 DIGIT_7	HEX 04 04 0C 04 3C
 DIGIT_8	HEX 3C 24 3C 24 3C
-DIGIT_9	HEX 04 3C 24 24 3C
+DIGIT_9	HEX 04 04 3C 24 3C
 DIGIT_LINES	= 4
 DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
@@ -230,7 +231,7 @@ position_elements SUBROUTINE position_elements
 	ACTIVATE_FINE_TUNE
 
 	; place obstacle 0 (missile 1) at screen middle
-	POS_SCREEN_MID RESM0, -1
+	POS_SCREEN_MID RESM0, 0
 
 	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
 	END_FINE_TUNE
@@ -280,10 +281,10 @@ game_vblank SUBROUTINE game_vblank
 .vblank_collisions
 
 	; check bird collision
-	;BIT CXM1P
-	;BMI .bird_collision
-	;BIT CXM0P
-	;BVS .bird_collision
+	BIT CXM1P
+	BMI .bird_collision
+	BIT CXM0P
+	BVS .bird_collision
 
 	; check for collision of obstacles with backstop
 	BIT CXM0FB
@@ -715,8 +716,6 @@ game_play_area SUBROUTINE game_play_area
 ; GAME - DISPLAY - FOREST_FLOOR 
 
 forest_floor SUBROUTINE forest_floor
-	STA WSYNC
-
 	; change colour of playfield to simulate leaves
 	; we'll change background colour in the next HBLANK
 	LDA #FOREST_LEAVES_COLOR
@@ -775,8 +774,8 @@ scoring SUBROUTINE scoring
 	STA COLUP0
 	STA COLUP1
 
-	POS_SCREEN_RIGHT RESP0, 4
-	POS_SCREEN_RIGHT RESP1, 2
+	POS_SCREEN_RIGHT RESP0, 8
+	POS_SCREEN_RIGHT RESP1, 4
 
 	; get address of unit digit
 	LDA SCORE
@@ -797,7 +796,6 @@ scoring SUBROUTINE scoring
 	STA DIGIT_ADDRESS_0
 
 	LDY #DIGIT_LINES
-
 
 ; Y register contains number of DIGIT_LINES remaining
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
@@ -825,8 +823,6 @@ scoring SUBROUTINE scoring
 ; GAME - OVERSCAN 
 
 game_overscan SUBROUTINE game_overscan
-	STA WSYNC	
-
 	OVERSCAN_KERNEL_SETUP
 
 	; update frame cycle

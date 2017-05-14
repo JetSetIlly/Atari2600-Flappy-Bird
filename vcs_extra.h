@@ -1,4 +1,6 @@
 
+; version 0.1 - 14/5/2017
+
 VBLANK_SCANLINES = $25		; 37
 VISIBLE_SCANLINES =	$C0		; 192
 OVERSCAN_SCANLINES = $1E	; 30
@@ -20,104 +22,41 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ;-----------------------------------
-	MAC POSITION_RESET
+; POS_* macros expect the arguments: 
+;	{reset address} {clock counts}
+
+	MAC POS_RESET
 		STA WSYNC
-		SLEEP_CLOCK_COUNTS {2}
-		STA {1}
+		SLEEP ({2}-3)/3
+		STA {1} ; three cycles
 	ENDM
 
 	MAC POS_SCREEN_LEFT
-		IF {2} == 0	
-			POSITION_RESET {1}, 54
+		IF {2} < 0 || {2} > 50
+			ECHO "MACRO ERROR: 'POS_SCREEN_LEFT': {2} must be >=0 AND <= 50"
+			ERR
 		ENDIF
-		IF {2} == 1	
-			POSITION_RESET {1}, 60
-		ENDIF
-		IF {2} == 2	
-			POSITION_RESET {1}, 66
-		ENDIF
-		IF {2} == 3	
-			POSITION_RESET {1}, 72
-		ENDIF
-		IF {2} == 4	
-			POSITION_RESET {1}, 78
-		ENDIF
-		IF {2} == 5	
-			POSITION_RESET {1}, 84
-		ENDIF
-		IF {2} == 6	
-			POSITION_RESET {1}, 90
-		ENDIF
-		IF {2} == 7	
-			POSITION_RESET {1}, 96
-		ENDIF
-		IF {2} == 8	
-			POSITION_RESET {1}, 102
-		ENDIF
-		IF {2} == 9	
-			POSITION_RESET {1}, 108
-		ENDIF
-		IF {2} == 10	
-			POSITION_RESET {1}, 114
-		ENDIF
-		IF {2} == 11	
-			POSITION_RESET {1}, 120
-		ENDIF
+		POS_RESET {1}, 57+({2}*3)
 	ENDM
 
 	MAC POS_SCREEN_MID
-		IF {2} == -1	
-			POSITION_RESET {1}, 120
-		ENDIF
-		IF {2} == 0	
-			POSITION_RESET {1}, 126
-		ENDIF
-		IF {2} == 1	
-			POSITION_RESET {1}, 132
-		ENDIF
+		POS_RESET {1}, 132+({2}*3)
 	ENDM
 
 	MAC POS_SCREEN_RIGHT
-		IF {2} == 0	
-			POSITION_RESET {1}, 198
+		IF {2} < 0 || {2} > 50
+			ECHO "MACRO ERROR: 'POS_SCREEN_LEFT': {2} must be >=0 AND <= 50"
+			ERR
 		ENDIF
-		IF {2} == 1	
-			POSITION_RESET {1}, 192
-		ENDIF
-		IF {2} == 2	
-			POSITION_RESET {1}, 187
-		ENDIF
-		IF {2} == 3	
-			POSITION_RESET {1}, 180
-		ENDIF
-		IF {2} == 4	
-			POSITION_RESET {1}, 174
-		ENDIF
-		IF {2} == 5	
-			POSITION_RESET {1}, 168
-		ENDIF
-		IF {2} == 6	
-			POSITION_RESET {1}, 162
-		ENDIF
-		IF {2} == 7	
-			POSITION_RESET {1}, 156
-		ENDIF
-		IF {2} == 8	
-			POSITION_RESET {1}, 150
-		ENDIF
-		IF {2} == 9	
-			POSITION_RESET {1}, 144
-		ENDIF
-		IF {2} == 10	
-			POSITION_RESET {1}, 138
-		ENDIF
-		IF {2} == 11	
-			POSITION_RESET {1}, 132
-		ENDIF
+		POS_RESET {1}, 207-({2}*3)
 	ENDM
+;-----------------------------------
 
+
+;-----------------------------------
+;	{reset address} {SINGLE|DOUBLE|QUADRUPLE|OCTUPLE}
 	MAC FINE_POS_SCREEN_RIGHT
-		POSITION_RESET {1}, 215
+		POS_RESET {1}, 215
 
 		IF {2} == "SINGLE"
 			LDA #$C0	; -64
@@ -217,11 +156,14 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 ;-----------------------------------
 	MAC VBLANK_KERNEL_BASIC
-		LDX	#VBLANK_SCANLINES
+		LDX	#(VBLANK_SCANLINES-2)
 .vblank_loop
 		STA WSYNC
 		DEX
 		BNE .vblank_loop
+		; turn beam back on at beginning of horizontal line
+		STA WSYNC
+		STA VBLANK
 	ENDM
 ;-----------------------------------
 
@@ -253,7 +195,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 		LDA	#2
 		STA VBLANK
 
-		LDX	#OVERSCAN_SCANLINES
+		LDX	#(OVERSCAN_SCANLINES-1)
 .overscan_loop
 		STA WSYNC
 		DEX
