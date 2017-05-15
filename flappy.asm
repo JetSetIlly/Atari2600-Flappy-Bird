@@ -16,7 +16,7 @@ GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 ; program constants
 
 ; screen boundaries for bird sprite
-BIRD_HIGH	=	PLAY_AREA_SCANLINES
+BIRD_HIGH	=	VISIBLE_LINE_PLAYAREA
 BIRD_LOW	=	$10
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
@@ -45,14 +45,14 @@ VBLANK_CYCLE_OBSTACLES	=	$2
 VBLANK_CYCLE_FOLIAGE		=	$1
 
 ; visible display area
-FOLIAGE_SCANLINES				= $20
-FOREST_FLOOR_SCANLINES	= $03
-SCORING_SCANLINES				= DIGIT_LINES
-
-WASTED_SCANLINES				= $05
-PLAY_AREA_SCANLINES			= VISIBLE_SCANLINES - FOLIAGE_SCANLINES - FOREST_FLOOR_SCANLINES - SCORING_SCANLINES - WASTED_SCANLINES
-
-SCANLINES_PER_FOLIAGE = FOLIAGE_SCANLINES / 8
+VISIBLE_LINES_FOLIAGE			= $20
+VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
+VISIBLE_LINES_FLOOR				= $03
+VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_FLOOR - VISIBLE_LINES_SCORE
+VISIBLE_LINES_SCORE				= DIGIT_LINES + $04	; 4 extra scanlines used
+; * one at the start of the subroutine
+; * two position resets
+; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
 
 ; colours
 BACKGROUND_COLOR		=	$D2
@@ -505,8 +505,8 @@ game_vblank SUBROUTINE game_vblank
 	LDY NEXT_FOLIAGE
 
 	; X register will contain the current scanline for the duration of the display kernal
-	; starting with FOLIAGE_SCANLINES and then PLAY_AREA_SCANLINES, loaded later
-	LDX	#FOLIAGE_SCANLINES
+	; starting with VISIBLE_LINES_FOLIAGE and then VISIBLE_LINE_PLAYAREA, loaded later
+	LDX	#VISIBLE_LINES_FOLIAGE
 
 	; set up horizontal movement
 	STA WSYNC
@@ -523,18 +523,18 @@ foliage SUBROUTINE foliage
 
 ; A should be zero after VBLANK_KERNEL_END
 
-; X register contains the number of FOLIAGE_SCANLINES remaining
+; X register contains the number of VISIBLE_LINES_FOLIAGE remaining
 
 ; Y register contains the NEXT_FOLIAGE value
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 ; into FOLIAGE space to set the playfield values
 ;
 ; we increase Y after every time we access it (after every change to the playfield - 3 per cycle)
-; in this subroutine: there are FOLIAGE_SCANLINES
+; in this subroutine: there are VISIBLE_LINES_FOLIAGE
 ; scanlines in this part of the display; the main body of the routine is run every
-; SCANLINES_PER_FOLIAGE; so:
+; VISIBLE_LINES_PER_FOLIAGE; so:
 ;
-;			max foliage index = NEXT_FOLIAGE + (FOLIAGE_SCANLINES / SCANLINES_PER_FOLIAGE * 3) - 1
+;			max foliage index = NEXT_FOLIAGE + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
 ;
 ; as is, the routine would draw the same foliage every frame. to introduce some randomness,
 ; NEXT_FOLIAGE is increased by one every VBLANK_CYCLE frames in the vblank kernel. the maximum
@@ -544,7 +544,7 @@ foliage SUBROUTINE foliage
 
 .display_foliage
 
-	; test accumulator (SCANLINES_PER_FOLIAGE)
+	; test accumulator (VISIBLE_LINES_PER_FOLIAGE)
 	CMP #$0
 	BNE .next_scanline
 
@@ -562,18 +562,18 @@ foliage SUBROUTINE foliage
 	INY
 
 	; start drawing obstacles if we're halfway through the foliage area
-	CPX #FOLIAGE_SCANLINES / 2
+	CPX #VISIBLE_LINES_FOLIAGE / 2
 	BNE .reset_accumulator
 	LDA #$2
 	STA ENAM0
 	STA ENAM1
 
 .reset_accumulator
-	LDA #SCANLINES_PER_FOLIAGE
+	LDA #VISIBLE_LINES_PER_FOLIAGE
 
 .next_scanline
 
-	; decrement accumulator (SCANLINES_PER_FOLIAGE)
+	; decrement accumulator (VISIBLE_LINES_PER_FOLIAGE)
 	SEC
 	SBC #$1
 
@@ -598,10 +598,10 @@ game_play_area SUBROUTINE game_play_area
 	STA PF2
 
 	; prepare for loop
-	LDX #PLAY_AREA_SCANLINES
+	LDX #VISIBLE_LINE_PLAYAREA
 	LDY #SPRITE_LINES
 
-; X register contains the number of PLAY_AREA_SCANLINES remaining
+; X register contains the number of VISIBLE_LINE_PLAYAREA remaining
 
 ; Y register contains number of SPRITE_LINES remaining
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
@@ -722,13 +722,13 @@ forest_floor SUBROUTINE forest_floor
 	STA COLUPF
 
 	; set up forest floor subroutine
-	LDX #FOREST_FLOOR_SCANLINES
+	LDX #VISIBLE_LINES_FLOOR
 	LDY NEXT_FOLIAGE
 
 	; preload accumulator with 0 in time to disable obstacles in the next HBLANK
 	LDA #$0
 
-; X register contains the number of FOREST_FLOOR_SCANLINES remaining
+; X register contains the number of VISIBLE_LINES_FLOOR remaining
 
 ; Y register contains the NEXT_FOLIAGE value
 ; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
@@ -810,20 +810,18 @@ scoring SUBROUTINE scoring
 
 .next_scanline
 	DEY													; 2
-	BMI .done_scoring						; 2/3
+	BMI game_overscan						; 2/3
 	JMP .scoring_loop						; 3
-
-.done_scoring
-	STA WSYNC
-	LDA #0
-	STA GRP1
-	STA GRP0
 
 ; ----------------------------------
 ; GAME - OVERSCAN 
 
 game_overscan SUBROUTINE game_overscan
 	OVERSCAN_KERNEL_SETUP
+
+	LDA #0
+	STA GRP1
+	STA GRP0
 
 	; update frame cycle
 	LDX VBLANK_CYCLE
