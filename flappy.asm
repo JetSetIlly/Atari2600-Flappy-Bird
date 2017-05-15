@@ -22,14 +22,14 @@ BIRD_LOW	=	$10
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
 OBSTACLE_WIDTH				= %00110000		; octuple width
-BIRD_SIZE							= %00000101   ; single instance, double width
-NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_SIZE
+BIRD_WIDTH						= %00000101   ; single instance, double width
+NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_WIDTH
 
 ; speed/width of obstacle when it's being reset
 ; prevents ugly graphical glitch
 OBSTACLE_EXIT_SPEED		= $20
 OBSTACLE_EXIT_WIDTH		= %00000000		; single width
-EXIT_NUSIZ_VAL				= OBSTACLE_EXIT_WIDTH | BIRD_SIZE
+EXIT_NUSIZ_VAL				= OBSTACLE_EXIT_WIDTH | BIRD_WIDTH
 
 ; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_CLIMB_START_FRAME	=	$0
@@ -39,17 +39,22 @@ BIRD_POS_INIT					=	BIRD_HIGH
 FLY_FRAME_INIT				=	FLY_DIVE_START_FRAME
 
 ; how often (in frames) each vblank kernel should run
-VBLANK_CYCLE_COUNT			=	$3
-VBLANK_CYCLE_SPRITE			=	$3
-VBLANK_CYCLE_OBSTACLES	=	$2
-VBLANK_CYCLE_FOLIAGE		=	$1
+VBLANK_CYCLE_COUNT			=	$2
+VBLANK_CYCLE_SPRITE			=	$2
+VBLANK_CYCLE_OBSTACLES	=	$1
+VBLANK_CYCLE_FOLIAGE		=	$0
+
+; how often (in frames) each scorearea should run
+SCOREAREA_CYCLE_COUNT		=	$1
+SCOREAREA_CYCLE_HISCORE	=	$1
+SCOREAREA_CYCLE_SCORE		=	$0
 
 ; visible display area
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 VISIBLE_LINES_FLOOR				= $03
-VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_FLOOR - VISIBLE_LINES_SCORE
-VISIBLE_LINES_SCORE				= DIGIT_LINES + $04	; 4 extra scanlines used
+VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_FLOOR - VISIBLE_LINES_SCOREAREA
+VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04	; 4 extra scanlines used
 ; * one at the start of the subroutine
 ; * two position resets
 ; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
@@ -61,13 +66,14 @@ FOLIAGE_COLOR				= $D0
 FOREST_FLOOR_COLOR	= $20
 FOREST_LEAVES_COLOR = $22
 SCORING_BACKGROUND	= $00
-SCORING_DIGITS			= $FF
+SCORE_DIGITS				= $0E
+HISCORE_DIGITS			= $F6
 
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 VBLANK_CYCLE				ds 1
-PAUSE_COLLISIONS	  ds 1	; flag: $00 = no pause; $FF = paused
+SCOREAREA_CYCLE			ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
@@ -151,14 +157,6 @@ setup SUBROUTINE setup
 ; GAME INITIALISATION
 
 game_init SUBROUTINE game_init
-	; memory is initialised to zero - set values that need to be non-zero
-	LDA #VBLANK_CYCLE_COUNT
-	STA VBLANK_CYCLE
-	LDA #BIRD_POS_INIT
-	STA BIRD_POS
-	LDA #FLY_FRAME_INIT
-	STA FLY_FRAME
-
 	; SPRITE_ADDRESS refers to players sprite to use in the current frame
 	LDA #<SPRITES
 	STA SPRITE_ADDRESS
@@ -213,6 +211,20 @@ game_init SUBROUTINE game_init
 	STA HMM1
 
 
+game_restart SUBROUTINE game_restart
+	LDA #0
+	STA SCORE
+
+	LDA #VBLANK_CYCLE_COUNT
+	STA VBLANK_CYCLE
+	LDA #SCOREAREA_CYCLE_COUNT
+	STA SCOREAREA_CYCLE
+	LDA #BIRD_POS_INIT
+	STA BIRD_POS
+	LDA #FLY_FRAME_INIT
+	STA FLY_FRAME
+
+
 position_elements SUBROUTINE position_elements
 	; use the very first frame of the game sequence to position elements
 	STA WSYNC
@@ -228,13 +240,13 @@ position_elements SUBROUTINE position_elements
 	POS_SCREEN_RIGHT RESM1, 0
 
 	; perform the fine tuning
-	ACTIVATE_FINE_TUNE
+	FINE_POS_ACTIVATE
 
 	; place obstacle 0 (missile 1) at screen middle
 	POS_SCREEN_MID RESM0, 0
 
 	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
-	END_FINE_TUNE
+	FINE_POS_END
 
 	; load frame cycle into X ready for beginning of vblank kernel
 	; -- we implicitly do the same at the end of the overscan kernel as a
@@ -350,8 +362,16 @@ game_vblank SUBROUTINE game_vblank
 
 .bird_collision
 	; TODO: better collision handling
-	BRK
-
+	
+	; save hiscore
+	LDA SCORE
+	SED
+	CMP HISCORE 
+	BCC .restart_game
+	STA HISCORE
+.restart_game
+	CLD
+	JMP game_restart
 	
 	; GAME - VBLANK - USER INPUT
 
@@ -770,7 +790,14 @@ scoring SUBROUTINE scoring
 	STA PF2
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
-	LDA #SCORING_DIGITS
+
+	LDA SCOREAREA_CYCLE
+	CMP #SCOREAREA_CYCLE_HISCORE
+	BEQ .prep_hiscore
+	; CMP #SCOREAREA_CYCLE_SCORE is implied
+
+.prep_score
+	LDA #SCORE_DIGITS
 	STA COLUP0
 	STA COLUP1
 
@@ -786,6 +813,27 @@ scoring SUBROUTINE scoring
 
 	; get address of tens digit
 	LDA SCORE
+	JMP .do_score
+
+.prep_hiscore
+	LDA #HISCORE_DIGITS
+	STA COLUP0
+	STA COLUP1
+
+	POS_SCREEN_RIGHT RESP0, 20
+	POS_SCREEN_RIGHT RESP1, 16
+
+	; get address of unit digit
+	LDA HISCORE
+	AND #$0F
+	TAY
+	LDA DIGIT_TABLE,Y
+	STA DIGIT_ADDRESS_1
+
+	; get address of tens digit
+	LDA HISCORE
+
+.do_score
 	ROR
 	ROR
 	ROR
@@ -823,12 +871,20 @@ game_overscan SUBROUTINE game_overscan
 	STA GRP1
 	STA GRP0
 
-	; update frame cycle
+	; update score area cycle
+	LDX SCOREAREA_CYCLE
+	DEX
+	BPL .store_scorearea_cycle
+	LDX #SCOREAREA_CYCLE_COUNT
+.store_scorearea_cycle
+	STX SCOREAREA_CYCLE
+
+	; update vblank cycle
 	LDX VBLANK_CYCLE
 	DEX
-	BNE .store_frame_cycle
+	BPL .store_vblank_cycle
 	LDX #VBLANK_CYCLE_COUNT
-.store_frame_cycle
+.store_vblank_cycle
 	STX VBLANK_CYCLE
 
 	; limit NEXT_OBSTACLE to maximum value
@@ -840,6 +896,8 @@ game_overscan SUBROUTINE game_overscan
 .limit_obstacle_bott
 
 	OVERSCAN_KERNEL_END
+
+	; VBLANK_CYCLE should be in X register
 
 	JMP game_vsync
 

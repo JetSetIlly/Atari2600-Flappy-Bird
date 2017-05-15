@@ -22,16 +22,16 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ;-----------------------------------
-; POS_* macros expect the arguments: 
-;	{reset address} {clock counts}
-
 	MAC POS_RESET
+		;	{reset address}, {clock counts}
 		STA WSYNC
 		SLEEP ({2}-3)/3
 		STA {1} ; three cycles
 	ENDM
 
+
 	MAC POS_SCREEN_LEFT
+		;	{reset address}, {offset}
 		IF {2} < 0 || {2} > 50
 			ECHO "MACRO ERROR: 'POS_SCREEN_LEFT': {2} must be >=0 AND <= 50"
 			ERR
@@ -40,10 +40,12 @@ OVERSCAN_SCANLINES = $1E	; 30
 	ENDM
 
 	MAC POS_SCREEN_MID
+		;	{reset address}, {offset}
 		POS_RESET {1}, 132+({2}*3)
 	ENDM
 
 	MAC POS_SCREEN_RIGHT
+		;	{reset address}, {offset}
 		IF {2} < 0 || {2} > 50
 			ECHO "MACRO ERROR: 'POS_SCREEN_LEFT': {2} must be >=0 AND <= 50"
 			ERR
@@ -54,8 +56,10 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ;-----------------------------------
-;	{reset address} {SINGLE|DOUBLE|QUADRUPLE|OCTUPLE}
+; fine-tuned positioning routines -- TODO: needs work
+
 	MAC FINE_POS_SCREEN_RIGHT
+	;	{reset address} {SINGLE|DOUBLE|QUADRUPLE|OCTUPLE}
 		POS_RESET {1}, 215
 
 		IF {2} == "SINGLE"
@@ -88,12 +92,12 @@ OVERSCAN_SCANLINES = $1E	; 30
 		ENDIF
 	ENDM
 
-	MAC ACTIVATE_FINE_TUNE
+	MAC FINE_POS_ACTIVATE
 		STA WSYNC
 		STA HMOVE
 	ENDM
 
-	MAC END_FINE_TUNE
+	MAC FINE_POS_END
 		; writing to HMCLR within 24 machine cycles of HMOVE will negate the HMOVE
 		STA HMCLR
 	ENDM
@@ -118,7 +122,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 ;-----------------------------------
 	MAC WAIT_SCANLINE_TIMER
 		; ----
-		; original comment 
+		; original comment (with regard to 37 scan lines)
 		; ----
 		; hold VBLANK for 37 scan lines
 		; why give the timer a value of 43?
@@ -132,6 +136,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 		; using the 64 cycle timer
 		; 2801 / 64 = 43
 		; ----
+
 .VBLANK_SCANLINES SET {1}
 
 .CLOCK_COUNTS_PER_SCANLINE = 228
