@@ -38,12 +38,6 @@ FLY_DIVE_START_FRAME	=	$FF
 BIRD_POS_INIT					=	BIRD_HIGH
 FLY_FRAME_INIT				=	FLY_DIVE_START_FRAME
 
-; how often (in frames) each vblank kernel should run
-VBLANK_CYCLE_COUNT			=	$2
-VBLANK_CYCLE_SPRITE			=	$2
-VBLANK_CYCLE_OBSTACLES	=	$1
-VBLANK_CYCLE_FOLIAGE		=	$0
-
 ; visible display area
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
@@ -67,8 +61,8 @@ HISCORE_DIGITS			= $F6
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
-TWO_CYCLE_COUNT			ds 1
-THREE_CYCLE_COUNT		ds 1
+TWO_FRAME_COUNT			ds 1
+THREE_FRAME_COUNT		ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
@@ -212,9 +206,9 @@ game_restart SUBROUTINE game_restart
 	LDA #0
 	STA SCORE
 
-	TWO_CYCLE_SETUP
+	TWO_FRAME_SETUP
 
-	THREE_CYCLE_SETUP
+	THREE_FRAME_SETUP
 
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
@@ -258,7 +252,7 @@ game_vsync SUBROUTINE game_vsync
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
-	THREE_CYCLE_TRIAGE
+	THREE_FRAME_TRIAGE
 	BEQ .vblank_player_sprite
 	BMI .vblank_collisions
 	; BPL is implied
@@ -780,7 +774,7 @@ scoring SUBROUTINE scoring
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
 
-	TWO_CYCLE_TRIAGE
+	TWO_FRAME_TRIAGE
 	BEQ .prep_hiscore
 
 .prep_score
@@ -866,9 +860,9 @@ game_overscan SUBROUTINE game_overscan
 	STY NEXT_OBSTACLE
 .limit_obstacle_bott
 
-	TWO_CYCLE_UPDATE
+	TWO_FRAME_UPDATE
 
-	THREE_CYCLE_UPDATE
+	THREE_FRAME_UPDATE
 
 	OVERSCAN_KERNEL_END
 
