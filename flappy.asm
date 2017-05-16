@@ -44,11 +44,6 @@ VBLANK_CYCLE_SPRITE			=	$2
 VBLANK_CYCLE_OBSTACLES	=	$1
 VBLANK_CYCLE_FOLIAGE		=	$0
 
-; how often (in frames) each scorearea should run
-SCOREAREA_CYCLE_COUNT		=	$1
-SCOREAREA_CYCLE_HISCORE	=	$1
-SCOREAREA_CYCLE_SCORE		=	$0
-
 ; visible display area
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
@@ -72,8 +67,8 @@ HISCORE_DIGITS			= $F6
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
-VBLANK_CYCLE				ds 1
-SCOREAREA_CYCLE			ds 1
+TWO_CYCLE_COUNT			ds 1
+THREE_CYCLE_COUNT		ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
@@ -212,13 +207,15 @@ game_init SUBROUTINE game_init
 
 
 game_restart SUBROUTINE game_restart
+	STA CXCLR
+
 	LDA #0
 	STA SCORE
 
-	LDA #VBLANK_CYCLE_COUNT
-	STA VBLANK_CYCLE
-	LDA #SCOREAREA_CYCLE_COUNT
-	STA SCOREAREA_CYCLE
+	TWO_CYCLE_SETUP
+
+	THREE_CYCLE_SETUP
+
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
 	LDA #FLY_FRAME_INIT
@@ -248,12 +245,6 @@ position_elements SUBROUTINE position_elements
 	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
 	FINE_POS_END
 
-	; load frame cycle into X ready for beginning of vblank kernel
-	; -- we implicitly do the same at the end of the overscan kernel as a
-	; side effect of the frame cycle update
-	LDX VBLANK_CYCLE
-
-
 ; ----------------------------------
 ; GAME - VSYNC
 
@@ -267,12 +258,10 @@ game_vsync SUBROUTINE game_vsync
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
-	; vblank triage - cycle through vblank kernels every VBLANK_CYCLE frames
-	CPX #VBLANK_CYCLE_SPRITE
+	THREE_CYCLE_TRIAGE
 	BEQ .vblank_player_sprite
-	CPX #VBLANK_CYCLE_OBSTACLES
-	BEQ .vblank_collisions
-	; CPX #VBLANK_CYCLE_FOLIAGE is implied
+	BMI .vblank_collisions
+	; BPL is implied
 
 	; -------------
 	; GAME - VBLANK - FOLIAGE
@@ -557,7 +546,7 @@ foliage SUBROUTINE foliage
 ;			max foliage index = NEXT_FOLIAGE + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
 ;
 ; as is, the routine would draw the same foliage every frame. to introduce some randomness,
-; NEXT_FOLIAGE is increased by one every VBLANK_CYCLE frames in the vblank kernel. the maximum
+; NEXT_FOLIAGE is increased by one every THREE_CYCLE frames in the vblank kernel. the maximum
 ; vaulue of NEXT_FOLIAGE at the start of the .display_foliage subroutine is therefore:
 ;
 ;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - mex_foliage_index
@@ -791,10 +780,8 @@ scoring SUBROUTINE scoring
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
 
-	LDA SCOREAREA_CYCLE
-	CMP #SCOREAREA_CYCLE_HISCORE
+	TWO_CYCLE_TRIAGE
 	BEQ .prep_hiscore
-	; CMP #SCOREAREA_CYCLE_SCORE is implied
 
 .prep_score
 	LDA #SCORE_DIGITS
@@ -871,22 +858,6 @@ game_overscan SUBROUTINE game_overscan
 	STA GRP1
 	STA GRP0
 
-	; update score area cycle
-	LDX SCOREAREA_CYCLE
-	DEX
-	BPL .store_scorearea_cycle
-	LDX #SCOREAREA_CYCLE_COUNT
-.store_scorearea_cycle
-	STX SCOREAREA_CYCLE
-
-	; update vblank cycle
-	LDX VBLANK_CYCLE
-	DEX
-	BPL .store_vblank_cycle
-	LDX #VBLANK_CYCLE_COUNT
-.store_vblank_cycle
-	STX VBLANK_CYCLE
-
 	; limit NEXT_OBSTACLE to maximum value
 	LDY NEXT_OBSTACLE
 	CPY #OBSTACLES_CT
@@ -895,9 +866,11 @@ game_overscan SUBROUTINE game_overscan
 	STY NEXT_OBSTACLE
 .limit_obstacle_bott
 
-	OVERSCAN_KERNEL_END
+	TWO_CYCLE_UPDATE
 
-	; VBLANK_CYCLE should be in X register
+	THREE_CYCLE_UPDATE
+
+	OVERSCAN_KERNEL_END
 
 	JMP game_vsync
 

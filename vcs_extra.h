@@ -226,3 +226,50 @@ OVERSCAN_SCANLINES = $1E	; 30
 		BNE .overscan_loop
 	ENDM
 ;-----------------------------------
+
+
+
+;-----------------------------------
+	MAC TWO_CYCLE_SETUP
+		; requires a 8bit memory address labelled TWO_CYCLE_COUNT
+		LDX #$1									; 2
+		STX TWO_CYCLE_COUNT			; 3
+	ENDM
+
+	MAC TWO_CYCLE_UPDATE
+		LDX TWO_CYCLE_COUNT			; 3
+		DEX											; 2
+		BPL .store_cycle_count	; 2/3
+		LDX #$1									; 2
+.store_cycle_count
+		STX TWO_CYCLE_COUNT			; 3
+	ENDM
+
+	MAC TWO_CYCLE_TRIAGE
+		; branch on BEQ and BNE
+		LDX TWO_CYCLE_COUNT			; 3
+	ENDM
+;-----------------------------------
+
+;-----------------------------------
+	MAC THREE_CYCLE_SETUP
+		; requires a 8bit memory address labelled THREE_CYCLE_COUNT
+		LDX #$2									; 2
+		STX THREE_CYCLE_COUNT		; 3
+	ENDM
+
+	MAC THREE_CYCLE_UPDATE
+		LDX THREE_CYCLE_COUNT		; 3
+		DEX											; 2
+		BPL .store_cycle_count	; 2/3
+		LDX #$2									; 2
+.store_cycle_count
+		STX THREE_CYCLE_COUNT		; 3
+	ENDM
+
+	MAC THREE_CYCLE_TRIAGE
+		; branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
+		LDX THREE_CYCLE_COUNT		; 3
+		DEX											; 2
+	ENDM
+;-----------------------------------
