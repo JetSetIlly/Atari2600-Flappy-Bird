@@ -61,8 +61,7 @@ HISCORE_DIGITS			= $F6
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
-TWO_FRAME_COUNT			ds 1
-THREE_FRAME_COUNT		ds 1
+MULTI_COUNT_STATE		ds 1
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
@@ -206,9 +205,7 @@ game_restart SUBROUTINE game_restart
 	LDA #0
 	STA SCORE
 
-	TWO_FRAME_SETUP
-
-	THREE_FRAME_SETUP
+	MULTI_COUNT_SETUP
 
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
@@ -252,7 +249,7 @@ game_vsync SUBROUTINE game_vsync
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
-	THREE_FRAME_TRIAGE
+	MULTI_COUNT_THREES
 	BEQ .vblank_player_sprite
 	BMI .vblank_collisions
 	; BPL is implied
@@ -774,7 +771,7 @@ scoring SUBROUTINE scoring
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
 
-	TWO_FRAME_TRIAGE
+	MULTI_COUNT_TWOS
 	BEQ .prep_hiscore
 
 .prep_score
@@ -860,9 +857,7 @@ game_overscan SUBROUTINE game_overscan
 	STY NEXT_OBSTACLE
 .limit_obstacle_bott
 
-	TWO_FRAME_UPDATE
-
-	THREE_FRAME_UPDATE
+	MULTI_COUNT_UPDATE
 
 	OVERSCAN_KERNEL_END
 

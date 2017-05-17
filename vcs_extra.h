@@ -228,48 +228,118 @@ OVERSCAN_SCANLINES = $1E	; 30
 ;-----------------------------------
 
 
+; Multi Count vs Two/Three Count comparison
+;
+;														|------------ cycles ------------|
+;									RAM				setup			update		twos		threes
+; Two							1byte			5					12.5			3				-
+; Three						1byte			5					12.5			-				5
+;	Two & Three			2byte			10				25				3				5
+; Multi						1byte			5					19.25			6				10
+
 ;-----------------------------------
-	MAC TWO_FRAME_SETUP
-		; requires a 8bit memory address labelled TWO_FRAME_COUNT
-		LDX #$1									; 2
-		STX TWO_FRAME_COUNT			; 3
+	MAC MULTI_COUNT_SETUP
+		LDA #%10000010						; 2
+		STA MULTI_COUNT_STATE			; 3
+		; 5 cycles
 	ENDM
 
-	MAC TWO_FRAME_UPDATE
-		LDX TWO_FRAME_COUNT			; 3
-		DEX											; 2
-		BPL .store_cycle_count	; 2/3
-		LDX #$1									; 2
-.store_cycle_count
-		STX TWO_FRAME_COUNT			; 3
+	MAC MULTI_COUNT_UPDATE
+		LDA MULTI_COUNT_STATE			; 3
+		BMI .is_negative					; 2/3
+
+.is_positive
+		SEC												; 2
+		SBC #$1										; 3
+		BMI .positive_reset				; 2/3
+		EOR #%10000000						; 3
+		JMP .store								; 3
+
+.positive_reset
+		LDA #%10000010						; 2
+		JMP .store								; 3
+
+.is_negative
+		EOR #%10000000						; 3
+		SEC												; 2
+		SBC #$1										; 3
+		BPL .store								; 2/3
+.negative_reset
+		LDA #%00000010						; 2
+
+.store
+		STA MULTI_COUNT_STATE			; 3
+		; 21 - is_negative negative_reset
+		; 20 - is_negative NO negative_reset
+		; 18 - is_positive positive_reset
+		; 18 - is_positive NO positive_reset
+		; AVG = 19.25
 	ENDM
 
-	MAC TWO_FRAME_TRIAGE
+	MAC MULTI_COUNT_TWOS
 		; branch on BEQ and BNE
-		LDX TWO_FRAME_COUNT			; 3
+		LDA MULTI_COUNT_STATE			; 3
+		AND #%10000000						; 3
+		; 6 cycles
+	ENDM
+
+	MAC MULTI_COUNT_THREES
+		; branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
+		LDA MULTI_COUNT_STATE			; 3
+		AND #%00000011						; 3
+		SEC												; 2
+		SBC #1										; 2
+		; 10 cycles
 	ENDM
 ;-----------------------------------
 
 
 ;-----------------------------------
-	MAC THREE_FRAME_SETUP
-		; requires a 8bit memory address labelled THREE_FRAME_COUNT
+	MAC TWO_COUNT_SETUP
+		; requires a 8bit memory address labelled TWO_COUNT_COUNT
+		LDX #$1									; 2
+		STX TWO_COUNT_COUNT			; 3
+		; 5 cycles
+	ENDM
+
+	MAC TWO_COUNT_UPDATE
+		LDX TWO_COUNT_COUNT			; 3
+		DEX											; 2
+		BPL .store_cycle_count	; 2/3
+		LDX #$1									; 2
+.store_cycle_count
+		STX TWO_COUNT_COUNT			; 3
+		; 12/13 cycles
+	ENDM
+
+	MAC COUNT_TWOS
+		; branch on BEQ and BNE
+		LDX TWO_COUNT_COUNT			; 3
+		; 3 cycles
+	ENDM
+
+	MAC THREE_COUNT_SETUP
+		; requires a 8bit memory address labelled THREE_COUNT_COUNT
 		LDX #$2									; 2
-		STX THREE_FRAME_COUNT		; 3
+		STX THREE_COUNT_COUNT		; 3
+		; 5 cycles
 	ENDM
 
-	MAC THREE_FRAME_UPDATE
-		LDX THREE_FRAME_COUNT		; 3
+	MAC THREE_COUNT_UPDATE
+		LDX THREE_COUNT_COUNT		; 3
 		DEX											; 2
 		BPL .store_cycle_count	; 2/3
 		LDX #$2									; 2
 .store_cycle_count
-		STX THREE_FRAME_COUNT		; 3
+		STX THREE_COUNT_COUNT		; 3
+		; 12/13 cycles
 	ENDM
 
-	MAC THREE_FRAME_TRIAGE
+	MAC COUNT_THREES
 		; branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
-		LDX THREE_FRAME_COUNT		; 3
+		LDX THREE_COUNT_COUNT		; 3
 		DEX											; 2
+		; 5 cycles
 	ENDM
 ;-----------------------------------
+
