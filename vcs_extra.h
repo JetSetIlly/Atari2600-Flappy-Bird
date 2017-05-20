@@ -7,8 +7,8 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 ;-----------------------------------
 	MAC DEAD_FRAME
-		VSYNC_KERNEL
-		VBLANK_KERNEL_WAIT
+		VSYNC_KERNEL_BASIC
+		VBLANK_KERNEL_BASIC
 
 		STA WSYNC
 		LDX	#VISIBLE_SCANLINES
@@ -16,7 +16,8 @@ OVERSCAN_SCANLINES = $1E	; 30
 		STA WSYNC
 		DEX
 		BNE .display_loop
-		OVERSCAN_KERNEL_EMPTY
+
+		OVERSCAN_KERNEL_BASIC
 	ENDM
 ;-----------------------------------
 
@@ -105,21 +106,6 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ;-----------------------------------
-	; like SLEEP in vcs.h but for clock counts rather than cycles
-	MAC SLEEP_CLOCK_COUNTS
-.CLOCK_COUNTS		SET {1}
-		IF .CLOCK_COUNTS < 1
-				ECHO "MACRO ERROR: 'SLEEP_CLOCK_COUNTS': Duration must be > 0"
-				ERR
-		ENDIF
-    REPEAT .CLOCK_COUNTS / 6
-			SLEEP 2
-    REPEND
-	ENDM
-;-----------------------------------
-
-
-;-----------------------------------
 	MAC WAIT_SCANLINE_TIMER
 		; ----
 		; original comment (with regard to 37 scan lines)
@@ -160,7 +146,15 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ;-----------------------------------
+	; empty vblank kernel - useful for when you don't want or need to do
+	; anything during the overscan. 
 	MAC VBLANK_KERNEL_BASIC
+		VBLANK_KERNEL_SETUP
+		VBLANK_KERNEL_END
+	ENDM
+
+	; alternative empty vblank which counts lines rather than using the timer
+	MAC VBLANK_KERNEL_BASIC_NO_TIMER
 		LDX	#(VBLANK_SCANLINES-2)
 .vblank_loop
 		STA WSYNC
@@ -191,7 +185,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ;-----------------------------------
-	; empty overscan kernel - useful for when you don't want/need to do
+	; empty overscan kernel - useful for when you don't want or need to do
 	; anything during the overscan. 
 	MAC OVERSCAN_KERNEL_BASIC
 .overscan_kernel
@@ -229,13 +223,27 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 
 ; Multi Count vs Two/Three Count comparison
+; -----------------------------------------
 ;
-;														|------------ cycles ------------|
-;									RAM				setup			update		twos		threes
-; Two							1byte			5					12.5			3				-
-; Three						1byte			5					12.5			-				5
-;	Two & Three			2byte			10				25				3				5
-; Multi						1byte			5					19.25			6				10
+;															|------------ cycles ------------|
+;										RAM				setup			update		twos		threes		total (typical frame) [3]
+; Two	[1]						1byte			5					12.5 (5)	3				-					15.5 (8)
+; Three							1byte			5					12.5			-				5					17.5
+;	Two & Three [1]		2byte			10				25 (17.5)	3				5					33 (25.5)
+; Multi	[2]					1byte			5					19.75			5				7 (9)			29.75
+;
+;		[1] --> acumulator clobbering version of update in parenthesis
+;		[2] --> threes comparison with set clear bit in parenthesis
+;		[3] --> typical defined as one update, one twos comparison and one threes comparison
+
+
+; Multi Count vs Two/Three Count side-effects
+; -----------------------------------------
+;
+; Two							clobbers Accumulator or X register
+; Three						clobbers X register
+; Multi						clobbers Accumulator
+
 
 ;-----------------------------------
 	MAC MULTI_COUNT_SETUP
@@ -252,7 +260,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 		SEC												; 2
 		SBC #$1										; 3
 		BMI .positive_reset				; 2/3
-		EOR #%10000000						; 3
+		EOR #%10000000						; 2
 		JMP .store								; 3
 
 .positive_reset
@@ -260,7 +268,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 		JMP .store								; 3
 
 .is_negative
-		EOR #%10000000						; 3
+		EOR #%10000000						; 2
 		SEC												; 2
 		SBC #$1										; 3
 		BPL .store								; 2/3
@@ -269,75 +277,106 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 .store
 		STA MULTI_COUNT_STATE			; 3
-		; 21 - is_negative negative_reset
-		; 20 - is_negative NO negative_reset
-		; 18 - is_positive positive_reset
-		; 18 - is_positive NO positive_reset
-		; AVG = 19.25
+		; cycles
+		; ------
+		; 20 - is_negative, negative_reset
+		; 19 - is_negative NO negative_reset
+		; 20 - is_positive, positive_reset
+		; 21 - is_positive NO positive_reset
+		; AVG = 19.75
 	ENDM
 
-	MAC MULTI_COUNT_TWOS
-		; branch on BEQ and BNE
-		LDA MULTI_COUNT_STATE			; 3
-		AND #%10000000						; 3
-		; 6 cycles
-	ENDM
-
-	MAC MULTI_COUNT_THREES
-		; branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
-		LDA MULTI_COUNT_STATE			; 3
-		AND #%00000011						; 3
-		SEC												; 2
-		SBC #1										; 2
-		; 10 cycles
-	ENDM
-;-----------------------------------
-
-
-;-----------------------------------
-	MAC TWO_COUNT_SETUP
-		; requires a 8bit memory address labelled TWO_COUNT_COUNT
-		LDX #$1									; 2
-		STX TWO_COUNT_COUNT			; 3
+	MAC MULTI_COUNT_TWO_CMP
+		; result - branch on BEQ and BNE
+		LDA #%10000000						; 2
+		AND MULTI_COUNT_STATE			; 3
 		; 5 cycles
 	ENDM
 
-	MAC TWO_COUNT_UPDATE
-		LDX TWO_COUNT_COUNT			; 3
+	MAC MULTI_COUNT_THREE_CMP
+		; {1} == 0 -> do NOT set carry bit before subtract
+		; {1} == n -> DO set carry bit before subtract
+
+		; result - branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
+
+		LDA #%00000011						; 2
+		AND MULTI_COUNT_STATE			; 3
+
+		IF {1} != 0
+			SEC											; 2
+		ENDIF
+
+		SBC #1										; 2
+		; 7 cycles - or 9 if SEC is used
+	ENDM
+;-----------------------------------
+
+
+;-----------------------------------
+	MAC TWO_COUNT_SETUP_X
+		; requires a 8bit memory address labelled TWO_COUNT_STATE
+		LDX #$1									; 2
+		STX TWO_COUNT_STATE			; 3
+		; 5 cycles
+	ENDM
+
+	MAC TWO_COUNT_UPDATE_X
+		LDX TWO_COUNT_STATE			; 3
 		DEX											; 2
 		BPL .store_cycle_count	; 2/3
 		LDX #$1									; 2
 .store_cycle_count
-		STX TWO_COUNT_COUNT			; 3
+		STX TWO_COUNT_STATE			; 3
 		; 12/13 cycles
 	ENDM
 
-	MAC COUNT_TWOS
-		; branch on BEQ and BNE
-		LDX TWO_COUNT_COUNT			; 3
+	MAC TWO_COUNT_CMP_X
+		; result - branch on BEQ and BNE
+		LDX TWO_COUNT_STATE			; 3
 		; 3 cycles
 	ENDM
 
-	MAC THREE_COUNT_SETUP
-		; requires a 8bit memory address labelled THREE_COUNT_COUNT
-		LDX #$2									; 2
-		STX THREE_COUNT_COUNT		; 3
+
+	MAC TWO_COUNT_SETUP_A
+		; requires a 8bit memory address labelled TWO_COUNT_STATE
+		LDA #$1									; 2
+		STA TWO_COUNT_STATE			; 3
 		; 5 cycles
 	ENDM
 
-	MAC THREE_COUNT_UPDATE
-		LDX THREE_COUNT_COUNT		; 3
+	MAC TWO_COUNT_UPDATE_A
+		LDA #%00000001					; 2
+		EOR TWO_COUNT_STATE			; 3
+		; 5 cycles
+	ENDM
+
+	MAC TWO_COUNT_CMP_A
+		; result - branch on BEQ and BNE
+		LDA TWO_COUNT_STATE			; 3
+		; 3 cycles
+	ENDM
+
+
+	MAC THREE_COUNT_SETUP_X
+		; requires a 8bit memory address labelled THREE_COUNT_STATE
+		LDX #$2									; 2
+		STX THREE_COUNT_STATE		; 3
+		; 5 cycles
+	ENDM
+
+	MAC THREE_COUNT_UPDATE_X
+		LDX THREE_COUNT_STATE		; 3
 		DEX											; 2
 		BPL .store_cycle_count	; 2/3
 		LDX #$2									; 2
 .store_cycle_count
-		STX THREE_COUNT_COUNT		; 3
+		STX THREE_COUNT_STATE		; 3
 		; 12/13 cycles
 	ENDM
 
-	MAC COUNT_THREES
-		; branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
-		LDX THREE_COUNT_COUNT		; 3
+	MAC THREE_COUNT_CMP_X
+		; result - branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
+		LDX THREE_COUNT_STATE		; 3
 		DEX											; 2
 		; 5 cycles
 	ENDM

@@ -43,7 +43,8 @@ VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 VISIBLE_LINES_FLOOR				= $03
 VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_FLOOR - VISIBLE_LINES_SCOREAREA
-VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04	; 4 extra scanlines used
+VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
+; the extra $04 scanlines in the score area are:
 ; * one at the start of the subroutine
 ; * two position resets
 ; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
@@ -61,7 +62,7 @@ HISCORE_DIGITS			= $F6
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
-MULTI_COUNT_STATE		ds 1
+MULTI_COUNT_STATE		ds 1	; counts rounds of twos and threes
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
@@ -236,6 +237,7 @@ position_elements SUBROUTINE position_elements
 	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
 	FINE_POS_END
 
+
 ; ----------------------------------
 ; GAME - VSYNC
 
@@ -249,7 +251,7 @@ game_vsync SUBROUTINE game_vsync
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
-	MULTI_COUNT_THREES
+	MULTI_COUNT_THREE_CMP 0
 	BEQ .vblank_player_sprite
 	BMI .vblank_collisions
 	; BPL is implied
@@ -771,7 +773,7 @@ scoring SUBROUTINE scoring
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
 
-	MULTI_COUNT_TWOS
+	MULTI_COUNT_TWO_CMP
 	BEQ .prep_hiscore
 
 .prep_score
