@@ -222,6 +222,8 @@ position_elements SUBROUTINE position_elements
 	LDA	#2
 	STA VBLANK
 
+	; note: RESP0 position is set at the end of the vblank
+
 	; position obstacle trigger (ball) at right most screen edge
 	FINE_POS_SCREEN_RIGHT RESBL, "SINGLE"
 
@@ -485,7 +487,7 @@ game_vblank SUBROUTINE game_vblank
 	; setup display kernel
 
 	; reset sprite objects to leftmost of the screen
-	; we do this every frame because we use and move RESP0 in
+	; note: we do this every frame because RESP0 is used and moved for 
 	; the scoring subroutine
 	POS_SCREEN_LEFT RESP0, 0
 
