@@ -15,9 +15,12 @@ GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 
 ; program constants
 
+DEATH_REBOUND_SPEED = $F8 
+
 ; screen boundaries for bird sprite
 BIRD_HIGH	=	VISIBLE_LINE_PLAYAREA
 BIRD_LOW	=	$10
+BIRD_LOW_DEATH	=	$08
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
@@ -59,13 +62,19 @@ SCORING_BACKGROUND	= $00
 SCORE_DIGITS				= $0E
 HISCORE_DIGITS			= $F6
 
+; game state
+GAME_STATE_PLAY			= $00
+GAME_STATE_DEATH		= $FF
+
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 MULTI_COUNT_STATE		ds 1	; counts rounds of twos and threes
+GAME_STATE					ds 1	; state of game - zero is normal, negative is death
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
+													; if GAME_STATE < 0 then FLY_FRAME indexes DEATH_SPIRAL
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
 ; value for next foliage (playfield) - points to FOLIAGE
@@ -134,12 +143,45 @@ DIGIT_9	HEX 04 04 3C 24 3C
 DIGIT_LINES	= 4
 DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
+DEATH_SPIRAL .byte 2, 2, 4, 4, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
+MAX_DEATH_SPIRAL = 13
+
 
 ; ----------------------------------
 ; SETUP
 
 setup SUBROUTINE setup
 	CLEAN_START
+
+
+; ----------------------------------
+; TITLE SCREEN
+
+; TODO: finish title screen
+
+title_screen SUBROUTINE title_screen
+.vsync
+	VSYNC_KERNEL_BASIC
+
+.vblank
+	VBLANK_KERNEL_SETUP
+	LDA INPT4
+	BPL .end_title_screen
+	LDX #VISIBLE_SCANLINES
+	VBLANK_KERNEL_END
+
+.visible_loop
+	STA WSYNC
+	DEX
+	BNE .visible_loop
+
+.overscan
+	OVERSCAN_KERNEL_BASIC
+	JMP .vsync
+
+.end_title_screen
+	VBLANK_KERNEL_END
+	OVERSCAN_KERNEL_BASIC
 
 
 ; ----------------------------------
@@ -183,7 +225,7 @@ game_init SUBROUTINE game_init
 	LDA #$2
 	STA ENABL
 
-	; the following system registers remain (mostly) constant throughout game
+	; the following system registers remain constant throughout game
 
 	; playfield priority - foliage in front of obstacles
 	LDA #$4
@@ -194,24 +236,31 @@ game_init SUBROUTINE game_init
 	STA NUSIZ0
 	STA NUSIZ1
 
-	; speed of flight
-	LDA #OBSTACLE_SPEED
-	STA HMM0
-	STA HMM1
-
-
+	; registers that are reset in game_restart subroutine are altered during gameplay
+	; and need to be reset on game restart
 game_restart SUBROUTINE game_restart
+	; clear any active collisions
 	STA CXCLR
 
-	LDA #0
-	STA SCORE
-
 	MULTI_COUNT_SETUP
+
+	LDA #$0
+	STA SCORE
+	STA GAME_STATE	 ; 0 is the normal GAME_STATE
+	STA HMP0				 ; player speed
 
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
 	LDA #FLY_FRAME_INIT
 	STA FLY_FRAME
+
+	; speed of flight
+	LDA #OBSTACLE_SPEED
+	STA HMM0
+	STA HMM1
+
+	LDA #$00
+	
 
 
 position_elements SUBROUTINE position_elements
@@ -253,14 +302,59 @@ game_vsync SUBROUTINE game_vsync
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
-	MULTI_COUNT_THREE_CMP 0
-	BEQ .vblank_player_sprite
-	BMI .vblank_collisions
-	; BPL is implied
+	LDX GAME_STATE
+	BEQ .triage
 
 	; -------------
-	; GAME - VBLANK - FOLIAGE
+	; GAME (DEATH) - VBLANK - DEATH ANIMATION
+.death_animation
+	MULTI_COUNT_THREE_CMP 0
+	BEQ .cont_death_anim
 
+	; alter position (FLY FRAME is a 2's complement negative so we can add)
+	LDA BIRD_POS
+	LDX FLY_FRAME
+	CLC
+	ADC DEATH_SPIRAL,X
+
+	; we don't want BIRD_POS to fall below BIRD_LOW
+	CMP #BIRD_LOW
+	BCC	.death_fly_lowest
+
+	STA BIRD_POS
+
+	CPX #MAX_DEATH_SPIRAL
+	BCS .cont_death_anim_save_activity
+	INX
+	JMP .cont_death_anim_save_activity
+
+.death_fly_lowest
+	JMP .end_death_anim
+
+.cont_death_anim_save_activity
+	STX FLY_FRAME
+
+.cont_death_anim
+	JMP .end_vblank_triage_more
+
+.end_death_anim
+	JMP game_restart
+
+
+	; ----------------------------------
+	; GAME - VBLANK - TRIAGE
+.triage
+	MULTI_COUNT_THREE_CMP 0
+	BEQ .far_jmp_sprite
+	BMI .vblank_collisions
+	BPL .vblank_foliage
+
+.far_jmp_sprite
+	JMP .vblank_player_sprite
+
+	; -------------
+	; GAME (PLAY) - VBLANK - FOLIAGE
+.vblank_foliage
 	LDY NEXT_FOLIAGE
 	INY
 	CPY #FOLIAGE_CHAOS_CYCLE
@@ -271,8 +365,9 @@ game_vblank SUBROUTINE game_vblank
 
 	JMP .end_vblank_triage
 
+
 	; -------------
-	; GAME - VBLANK - COLLISIONS
+	; GAME (PLAY) - VBLANK - COLLISIONS
 
 .vblank_collisions
 
@@ -355,9 +450,33 @@ game_vblank SUBROUTINE game_vblank
 	STA HISCORE
 .restart_game
 	CLD
-	JMP game_restart
+
+	; prepare death animation
+
+	; stop flight movement
+	LDA #0
+	STA HMM0
+	STA HMM1
+
+	; use fly down sprite
+	LDA #<SPRITE_WINGS_UP
+	STA SPRITE_ADDRESS
+
+	; begin death spriral rebound
+	LDA #DEATH_REBOUND_SPEED
+	STA HMP0
+
+	; change game state
+	LDA #GAME_STATE_DEATH
+	STA GAME_STATE
+
+	; begin fly down anim
+	LDA #0
+	STA FLY_FRAME
+
+	JMP .end_vblank_triage
 	
-	; GAME - VBLANK - USER INPUT
+	; GAME (PLAY) - VBLANK - USER INPUT
 
 .vblank_player_sprite
 	; check fire button
@@ -457,7 +576,7 @@ game_vblank SUBROUTINE game_vblank
 	CLC
 	ADC FLY_FRAME
 
-	; check to see FALL RATE will take BIRD_POS below zero ...
+	; check to see if FALL RATE will take BIRD_POS below zero ...
 	BCC	.fly_lowest
 
 	; ... actually, we don't want BIRD_POS to fall below BIRD_LOW
@@ -469,13 +588,11 @@ game_vblank SUBROUTINE game_vblank
 	JMP .fly_end
 
 .fly_lowest
-	; TODO: test for game mode (easy/hard) and allow a "walking" bird sprite or cause death accordingly
 	LDA #BIRD_LOW
 	STA BIRD_POS
 
 .fly_end
 	; fall through to end_frame_triage
-
 
 	; -------------
 	; GAME - VBLANK - PREPARE DISPLAY
@@ -491,11 +608,8 @@ game_vblank SUBROUTINE game_vblank
 	; the scoring subroutine
 	POS_SCREEN_LEFT RESP0, 0
 
-	; reset colours
-	LDA #SPRITE_COLOR
-	STA COLUP0
-	STA COLUP1
-
+; end of vblank when when we don't want to reset player sprite position (ie. during death)
+.end_vblank_triage_more
 	; turn off obstacles - we'll turn them on in the foliage subroutine
 	LDY #$0
 	STY ENAM0
@@ -766,6 +880,11 @@ forest_floor SUBROUTINE forest_floor
 ; ----------------------------------
 ; GAME - DISPLAY - SCORING 
 scoring SUBROUTINE scoring
+	LDA GAME_STATE
+	BPL .display_score
+	JMP game_overscan
+
+.display_score
 	STA WSYNC
 	LDA #0
 	STA PF0
@@ -849,9 +968,15 @@ scoring SUBROUTINE scoring
 game_overscan SUBROUTINE game_overscan
 	OVERSCAN_KERNEL_SETUP
 
+	; reset sprite image
 	LDA #0
 	STA GRP1
 	STA GRP0
+
+	; reset colours
+	LDA #SPRITE_COLOR
+	STA COLUP0
+	STA COLUP1
 
 	; limit NEXT_OBSTACLE to maximum value
 	LDY NEXT_OBSTACLE
