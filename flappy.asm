@@ -13,14 +13,28 @@ CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
 CLIMB_FRAMES			=	$5
 GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 
-; program constants
+; tunables - but not related to difficulty
 
-DEATH_REBOUND_SPEED = $F8 
+DEATH_REBOUND_SPEED		= $E0 ; speed at which player sprite moves foward during death spiral
+DEATH_OBSTACLE_SPEED	= $00
+
+; colours
+BACKGROUND_COLOR		=	$D2
+SPRITE_COLOR				= $00
+FOLIAGE_COLOR				= $D0
+FOREST_FLOOR_COLOR	= $20
+FOREST_LEAVES_COLOR = $22
+SCORING_BACKGROUND	= $00
+SCORE_DIGITS				= $0E
+HISCORE_DIGITS			= $F6
+
+
+; program constants
 
 ; screen boundaries for bird sprite
 BIRD_HIGH	=	VISIBLE_LINE_PLAYAREA
 BIRD_LOW	=	$10
-BIRD_LOW_DEATH	=	$08
+BIRD_LOW_DEATH	=	$10
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
@@ -52,29 +66,19 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; * two position resets
 ; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
 
-; colours
-BACKGROUND_COLOR		=	$D2
-SPRITE_COLOR				= $00
-FOLIAGE_COLOR				= $D0
-FOREST_FLOOR_COLOR	= $20
-FOREST_LEAVES_COLOR = $22
-SCORING_BACKGROUND	= $00
-SCORE_DIGITS				= $0E
-HISCORE_DIGITS			= $F6
-
-; game state
-GAME_STATE_PLAY			= $00
-GAME_STATE_DEATH		= $FF
+; play state
+PLAY_STATE_PLAY			= $00
+PLAY_STATE_DEATH		= $FF
 
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 MULTI_COUNT_STATE		ds 1	; counts rounds of twos and threes
-GAME_STATE					ds 1	; state of game - zero is normal, negative is death
+PLAY_STATE					ds 1	; state of play - zero is normal, negative is death
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
 FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
-													; if GAME_STATE < 0 then FLY_FRAME indexes DEATH_SPIRAL
+													; if GAME_PLAY < 0 then FLY_FRAME indexes DEATH_SPIRAL
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 
 ; value for next foliage (playfield) - points to FOLIAGE
@@ -143,8 +147,8 @@ DIGIT_9	HEX 04 04 3C 24 3C
 DIGIT_LINES	= 4
 DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
-DEATH_SPIRAL .byte 2, 2, 4, 4, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
-MAX_DEATH_SPIRAL = 13
+DEATH_SPIRAL .byte 1, 2, 3, 4, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
+DEATH_SPIRAL_LEN = 13
 
 
 ; ----------------------------------
@@ -236,6 +240,10 @@ game_init SUBROUTINE game_init
 	STA NUSIZ0
 	STA NUSIZ1
 
+
+; ----------------------------------
+; GAME RESTART
+
 	; registers that are reset in game_restart subroutine are altered during gameplay
 	; and need to be reset on game restart
 game_restart SUBROUTINE game_restart
@@ -246,7 +254,7 @@ game_restart SUBROUTINE game_restart
 
 	LDA #$0
 	STA SCORE
-	STA GAME_STATE	 ; 0 is the normal GAME_STATE
+	STA PLAY_STATE	 ; 0 is the normal PLAY_STATE
 	STA HMP0				 ; player speed
 
 	LDA #BIRD_POS_INIT
@@ -260,10 +268,9 @@ game_restart SUBROUTINE game_restart
 	STA HMM1
 
 	LDA #$00
+
+	; POSITION ELEMENTS
 	
-
-
-position_elements SUBROUTINE position_elements
 	; use the very first frame of the game sequence to position elements
 	STA WSYNC
 
@@ -302,14 +309,14 @@ game_vsync SUBROUTINE game_vsync
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
-	LDX GAME_STATE
-	BEQ .triage
+	LDX PLAY_STATE
+	BEQ game_vblank_play
 
-	; -------------
-	; GAME (DEATH) - VBLANK - DEATH ANIMATION
-.death_animation
-	MULTI_COUNT_THREE_CMP 0
-	BEQ .cont_death_anim
+
+; -------------
+; GAME - VBLANK - DEATH
+
+game_vblank_death SUBROUTINE game_vblank_death
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	LDA BIRD_POS
@@ -323,7 +330,7 @@ game_vblank SUBROUTINE game_vblank
 
 	STA BIRD_POS
 
-	CPX #MAX_DEATH_SPIRAL
+	CPX #DEATH_SPIRAL_LEN
 	BCS .cont_death_anim_save_activity
 	INX
 	JMP .cont_death_anim_save_activity
@@ -335,26 +342,39 @@ game_vblank SUBROUTINE game_vblank
 	STX FLY_FRAME
 
 .cont_death_anim
-	JMP .end_vblank_triage_more
+	MULTI_COUNT_THREE_CMP 0
+	BPL .cont_death_anim_with_foliage
+	JMP game_vblank_end_more
 
 .end_death_anim
 	JMP game_restart
 
+.cont_death_anim_with_foliage
+	LDY NEXT_FOLIAGE
+	INY
+	CPY #FOLIAGE_CHAOS_CYCLE
+	BCC .foliage_updated
+	LDY #0
+.foliage_updated
+	STY NEXT_FOLIAGE
+	JMP game_vblank_end_more
 
-	; ----------------------------------
-	; GAME - VBLANK - TRIAGE
-.triage
+
+; ----------------------------------
+; GAME - VBLANK - PLAY
+
+game_vblank_play SUBROUTINE game_vblank_play
 	MULTI_COUNT_THREE_CMP 0
 	BEQ .far_jmp_sprite
-	BMI .vblank_collisions
-	BPL .vblank_foliage
+	BMI game_vblank_collisions
+	BPL game_vblank_foliage
 
 .far_jmp_sprite
-	JMP .vblank_player_sprite
+	JMP game_vblank_player_sprite
 
 	; -------------
-	; GAME (PLAY) - VBLANK - FOLIAGE
-.vblank_foliage
+	; GAME - VBLANK - PLAY - FOLIAGE
+game_vblank_foliage
 	LDY NEXT_FOLIAGE
 	INY
 	CPY #FOLIAGE_CHAOS_CYCLE
@@ -363,14 +383,11 @@ game_vblank SUBROUTINE game_vblank
 .foliage_updated
 	STY NEXT_FOLIAGE
 
-	JMP .end_vblank_triage
-
+	JMP game_vblank_end
 
 	; -------------
-	; GAME (PLAY) - VBLANK - COLLISIONS
-
-.vblank_collisions
-
+	; GAME - VBLANK - PLAY - COLLISIONS
+game_vblank_collisions
 	; check bird collision
 	BIT CXM1P
 	BMI .bird_collision
@@ -392,7 +409,7 @@ game_vblank SUBROUTINE game_vblank
 	STA NUSIZ0
 	STA NUSIZ1
 
-	JMP .end_vblank_triage
+	JMP game_vblank_end
 
 ; TODO: make reset_obstacle_0 and reset_obstacle_1 more efficient
 .reset_obstacle_0
@@ -437,7 +454,7 @@ game_vblank SUBROUTINE game_vblank
 	ADC #$1
 	STA SCORE
 	CLD
-	JMP .end_vblank_triage
+	JMP game_vblank_end
 
 .bird_collision
 	; TODO: better collision handling
@@ -454,7 +471,7 @@ game_vblank SUBROUTINE game_vblank
 	; prepare death animation
 
 	; stop flight movement
-	LDA #0
+	LDA #DEATH_OBSTACLE_SPEED
 	STA HMM0
 	STA HMM1
 
@@ -466,19 +483,20 @@ game_vblank SUBROUTINE game_vblank
 	LDA #DEATH_REBOUND_SPEED
 	STA HMP0
 
-	; change game state
-	LDA #GAME_STATE_DEATH
-	STA GAME_STATE
+	; change play state
+	LDA #PLAY_STATE_DEATH
+	STA PLAY_STATE
 
 	; begin fly down anim
 	LDA #0
 	STA FLY_FRAME
 
-	JMP .end_vblank_triage
+	JMP game_vblank_end
 	
-	; GAME (PLAY) - VBLANK - USER INPUT
+	; -------------
+	; GAME - VBLANK - PLAY - USER INPUT
 
-.vblank_player_sprite
+game_vblank_player_sprite
 	; check fire button
 	LDA INPT4
 	BMI .do_flight_anim
@@ -576,10 +594,7 @@ game_vblank SUBROUTINE game_vblank
 	CLC
 	ADC FLY_FRAME
 
-	; check to see if FALL RATE will take BIRD_POS below zero ...
-	BCC	.fly_lowest
-
-	; ... actually, we don't want BIRD_POS to fall below BIRD_LOW
+	; we don't want BIRD_POS to fall below BIRD_LOW
 	CMP #BIRD_LOW
 	BCC	.fly_lowest
 
@@ -592,12 +607,13 @@ game_vblank SUBROUTINE game_vblank
 	STA BIRD_POS
 
 .fly_end
-	; fall through to end_frame_triage
+	; fall through
 
-	; -------------
-	; GAME - VBLANK - PREPARE DISPLAY
 
-.end_vblank_triage
+; -------------
+; GAME - VBLANK - END
+
+game_vblank_end SUBROUTINE game_vblank_end
 	; reset collision flags every frame
 	STA CXCLR
 
@@ -608,8 +624,7 @@ game_vblank SUBROUTINE game_vblank
 	; the scoring subroutine
 	POS_SCREEN_LEFT RESP0, 0
 
-; end of vblank when when we don't want to reset player sprite position (ie. during death)
-.end_vblank_triage_more
+game_vblank_end_more SUBROUTINE game_vblank_end
 	; turn off obstacles - we'll turn them on in the foliage subroutine
 	LDY #$0
 	STY ENAM0
@@ -690,7 +705,6 @@ foliage SUBROUTINE foliage
 	LDA #VISIBLE_LINES_PER_FOLIAGE
 
 .next_scanline
-
 	; decrement accumulator (VISIBLE_LINES_PER_FOLIAGE)
 	SEC
 	SBC #$1
@@ -880,8 +894,8 @@ forest_floor SUBROUTINE forest_floor
 ; ----------------------------------
 ; GAME - DISPLAY - SCORING 
 scoring SUBROUTINE scoring
-	LDA GAME_STATE
-	BPL .display_score
+	LDA PLAY_STATE
+	BEQ .display_score
 	JMP game_overscan
 
 .display_score
@@ -981,10 +995,10 @@ game_overscan SUBROUTINE game_overscan
 	; limit NEXT_OBSTACLE to maximum value
 	LDY NEXT_OBSTACLE
 	CPY #OBSTACLES_CT
-	BCC .limit_obstacle_bott
+	BCC .next_obstacle
 	LDY #$0
 	STY NEXT_OBSTACLE
-.limit_obstacle_bott
+.next_obstacle
 
 	MULTI_COUNT_UPDATE
 
