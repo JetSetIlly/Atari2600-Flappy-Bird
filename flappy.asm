@@ -43,10 +43,8 @@ BIRD_WIDTH						= %00000101   ; single instance, double width
 NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_WIDTH
 
 ; speed/width of obstacle when it's being reset
-; prevents ugly graphical glitch
+; prevents extra collisions (which cause extra scoring)
 OBSTACLE_EXIT_SPEED		= $20
-OBSTACLE_EXIT_WIDTH		= %00000000		; single width
-EXIT_NUSIZ_VAL				= OBSTACLE_EXIT_WIDTH | BIRD_WIDTH
 
 ; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
 FLY_CLIMB_START_FRAME	=	$0
@@ -241,10 +239,6 @@ game_init SUBROUTINE game_init
 
 	; setup attributes that don't change during the game
 
-	; ball is enabled throughout the game
-	LDA #$2
-	STA ENABL
-
 	; the following system registers remain constant throughout game
 
 	; playfield priority - foliage in front of obstacles
@@ -298,13 +292,12 @@ game_restart SUBROUTINE game_restart
 	; note: RESP0 position is set at the end of the vblank
 
 	; position obstacle trigger (ball) at right most screen edge
-	FINE_POS_SCREEN_RIGHT RESBL, "SINGLE"
+	; this will be hidden because of the aggresive call to HMOVE
+	; we do at the beginning of every scanline
+	POS_SCREEN_LEFT RESBL, 2
 
 	; place obstacle 1 (missile 1) at right most screen edge
 	POS_SCREEN_RIGHT RESM1, 0
-
-	; perform the fine tuning
-	FINE_POS_ACTIVATE
 
 	; place obstacle 0 (missile 1) at screen middle
 	POS_SCREEN_MID RESM0, 0
@@ -390,12 +383,9 @@ game_vblank_play SUBROUTINE game_vblank_play
 	STA HMM1
 
 	MULTI_COUNT_THREE_CMP 0
-	BEQ .far_jmp_sprite
+	BEQ game_vblank_player_sprite
 	BMI game_vblank_collisions
 	BPL game_vblank_foliage
-
-.far_jmp_sprite
-	JMP game_vblank_player_sprite
 
 	; -------------
 	; GAME - VBLANK - PLAY - FOLIAGE
@@ -432,9 +422,6 @@ game_vblank_collisions
 	STA CURRENT_OB_1_SPEED
 	STA HMM0
 	STA HMM1
-	LDA #NORMAL_NUSIZ_VAL
-	STA NUSIZ0
-	STA NUSIZ1
 
 	JMP game_vblank_end
 
@@ -453,8 +440,6 @@ game_vblank_collisions
 	LDA #OBSTACLE_EXIT_SPEED
 	STA CURRENT_OB_0_SPEED
 	STA HMM0
-	LDA #EXIT_NUSIZ_VAL
-	STA NUSIZ0
 
 	JMP .obstacle_reset_done
 
@@ -472,8 +457,6 @@ game_vblank_collisions
 	LDA #OBSTACLE_EXIT_SPEED
 	STA CURRENT_OB_1_SPEED
 	STA HMM1
-	LDA #EXIT_NUSIZ_VAL
-	STA NUSIZ1
 
 .obstacle_reset_done
 	; increase score -- using decimal addition
@@ -655,6 +638,10 @@ game_vblank_end_more SUBROUTINE game_vblank_end
 
 	; reset collision flags every frame
 	STA CXCLR
+
+	; trigger (ball) is turned off before score area
+	LDA #$2
+	STA ENABL
 
 	; turn off obstacles - we'll turn them on in the foliage subroutine
 	LDY #$0
@@ -937,6 +924,10 @@ forest_floor SUBROUTINE forest_floor
 ; ----------------------------------
 ; GAME - DISPLAY - SCORING 
 scoring SUBROUTINE scoring
+	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
+	LDA #$0
+	STA ENABL
+
 	LDA PLAY_STATE
 	BEQ .display_score
 	JMP game_overscan
