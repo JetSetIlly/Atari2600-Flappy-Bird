@@ -8,7 +8,7 @@
 ; TODO: alter these according to console difficulty setting
 
 OBSTACLE_SPEED		= $10
-OBSTACLE_WINDOW		= $20
+OBSTACLE_WINDOW		= $1B
 CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
 CLIMB_FRAMES			=	$5
 GLIDE_FRAMES			=	CLIMB_FRAMES + $2
@@ -38,7 +38,7 @@ BIRD_LOW_DEATH	=	$10
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
-OBSTACLE_WIDTH				= %00110000		; octuple width
+OBSTACLE_WIDTH				= %00100000		; quad width
 BIRD_WIDTH						= %00000101   ; single instance, double width
 NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_WIDTH
 
@@ -84,11 +84,20 @@ SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 ; value for next foliage (playfield) - points to FOLIAGE
 NEXT_FOLIAGE				ds 1
 
+; value for next trunk - points to TRUNK
+NEXT_TRUNK					ds 1
+
 ; obstacles
 OB_0_START					ds 1
 OB_0_END						ds 1
 OB_1_START					ds 1
 OB_1_END						ds 1
+OB_0_BRANCH					ds 1
+OB_1_BRANCH					ds 1
+
+; current speed of obstacle
+CURRENT_OB_0_SPEED		ds 1
+CURRENT_OB_1_SPEED		ds 1
 
 ; start value for next obstacle - points to OBSTACLES
 NEXT_OBSTACLE				ds 1
@@ -131,6 +140,9 @@ FOLIAGE_1	.byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001
 FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101
 FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
 FOLIAGE_CHAOS_CYCLE	= 7
+
+TRUNK				HEX 01 01 FF 01 FF FF 01 FF 
+TRUNK_NUM		= 8
 
 ; digits - used for scoring
 DIGITS
@@ -222,6 +234,10 @@ game_init SUBROUTINE game_init
 	ADC #OBSTACLE_WINDOW
 	STA OB_1_END
 	STY NEXT_OBSTACLE
+	LDY #$2
+	STA OB_0_BRANCH
+	LDY #$3
+	STA OB_1_BRANCH
 
 	; setup attributes that don't change during the game
 
@@ -264,10 +280,11 @@ game_restart SUBROUTINE game_restart
 
 	; speed of flight
 	LDA #OBSTACLE_SPEED
+	STA CURRENT_OB_0_SPEED
+	STA CURRENT_OB_1_SPEED
 	STA HMM0
 	STA HMM1
 
-	LDA #$00
 
 	; POSITION ELEMENTS
 	
@@ -312,11 +329,13 @@ game_vblank SUBROUTINE game_vblank
 	LDX PLAY_STATE
 	BEQ game_vblank_play
 
-
 ; -------------
 ; GAME - VBLANK - DEATH
 
 game_vblank_death SUBROUTINE game_vblank_death
+	; set death spriral rebound speed
+	LDA #DEATH_REBOUND_SPEED
+	STA HMP0
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	LDA BIRD_POS
@@ -364,6 +383,12 @@ game_vblank_death SUBROUTINE game_vblank_death
 ; GAME - VBLANK - PLAY
 
 game_vblank_play SUBROUTINE game_vblank_play
+	; reset speed of flight
+	LDA CURRENT_OB_0_SPEED
+	STA HMM0
+	LDA CURRENT_OB_1_SPEED
+	STA HMM1
+
 	MULTI_COUNT_THREE_CMP 0
 	BEQ .far_jmp_sprite
 	BMI game_vblank_collisions
@@ -403,6 +428,8 @@ game_vblank_collisions
 	; a frame has occurred without obstacle collision
 	; reset speed and width of obstacles
 	LDA #OBSTACLE_SPEED
+	STA CURRENT_OB_0_SPEED
+	STA CURRENT_OB_1_SPEED
 	STA HMM0
 	STA HMM1
 	LDA #NORMAL_NUSIZ_VAL
@@ -424,6 +451,7 @@ game_vblank_collisions
 
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
+	STA CURRENT_OB_0_SPEED
 	STA HMM0
 	LDA #EXIT_NUSIZ_VAL
 	STA NUSIZ0
@@ -442,6 +470,7 @@ game_vblank_collisions
 
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
+	STA CURRENT_OB_1_SPEED
 	STA HMM1
 	LDA #EXIT_NUSIZ_VAL
 	STA NUSIZ1
@@ -470,18 +499,13 @@ game_vblank_collisions
 
 	; prepare death animation
 
-	; stop flight movement
-	LDA #DEATH_OBSTACLE_SPEED
-	STA HMM0
-	STA HMM1
+	; note obstacle movement will effectively be stopped now because it will
+	; be stopped at the end of the vblank (as usual) but won't be restarted 
+	; in the game_vblank_death subroutine
 
 	; use fly down sprite
 	LDA #<SPRITE_WINGS_UP
 	STA SPRITE_ADDRESS
-
-	; begin death spriral rebound
-	LDA #DEATH_REBOUND_SPEED
-	STA HMP0
 
 	; change play state
 	LDA #PLAY_STATE_DEATH
@@ -614,17 +638,24 @@ game_vblank_player_sprite
 ; GAME - VBLANK - END
 
 game_vblank_end SUBROUTINE game_vblank_end
-	; reset collision flags every frame
-	STA CXCLR
-
-	; setup display kernel
 
 	; reset sprite objects to leftmost of the screen
 	; note: we do this every frame because RESP0 is used and moved for 
 	; the scoring subroutine
-	POS_SCREEN_LEFT RESP0, 0
+	POS_SCREEN_LEFT RESP0, 4
 
 game_vblank_end_more SUBROUTINE game_vblank_end
+	; setup display kernel
+
+	; do horizontal movement
+	; note that move registers need to be set up every frame before this
+	; point because we're going to set them all to zero later on
+	STA WSYNC
+	STA HMOVE
+
+	; reset collision flags every frame
+	STA CXCLR
+
 	; turn off obstacles - we'll turn them on in the foliage subroutine
 	LDY #$0
 	STY ENAM0
@@ -641,12 +672,16 @@ game_vblank_end_more SUBROUTINE game_vblank_end
 	; starting with VISIBLE_LINES_FOLIAGE and then VISIBLE_LINE_PLAYAREA, loaded later
 	LDX	#VISIBLE_LINES_FOLIAGE
 
-	; set up horizontal movement
-	STA WSYNC
-	STA HMOVE
+	; reset all movmement registers - we'll be calling HMOVE every scanline and we
+	; don't want objects flying all over the screen. move registers will be reset
+	; accordingly at the beginning of each frame
+	; note that we should be 24 machine cycles between these writes and
+	; the HMOVE earlier
+	STA HMCLR
 
 	; wait for end of vblank kernel 
 	VBLANK_KERNEL_END
+	STA HMOVE
 
 
 ; ----------------------------------
@@ -712,6 +747,7 @@ foliage SUBROUTINE foliage
 	DEX												; 2
 	BEQ game_play_area				; 2/3
 	STA WSYNC
+	STA HMOVE
 	JMP .display_foliage			; 3
 
 
@@ -733,16 +769,20 @@ game_play_area SUBROUTINE game_play_area
 	LDX #VISIBLE_LINE_PLAYAREA
 	LDY #SPRITE_LINES
 
-; X register contains the number of VISIBLE_LINE_PLAYAREA remaining
+	; loop alternates between .display_bird and .display_obstacle
+	; starting with .display_bird - branching at end of loop
 
-; Y register contains number of SPRITE_LINES remaining
-; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-; to set the sprite line
+	; X register contains the number of VISIBLE_LINE_PLAYAREA remaining
+
+	; Y register contains number of SPRITE_LINES remaining
+	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+	; to set the sprite line
 
 ; -----------------------
 .display_bird
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
+	STA HMOVE
 
 	LDA BIRD_DRAW							; 3
 	STA GRP0									; 3
@@ -786,6 +826,7 @@ game_play_area SUBROUTINE game_play_area
 .display_obstacle
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
+	STA HMOVE
 
 	LDA OBSTACLE_0_DRAW				; 3
 	STA ENAM0									; 3
@@ -840,8 +881,8 @@ game_play_area SUBROUTINE game_play_area
 	; interlace sprite and obstacle drawing
 	TXA												; 2
 	AND #%00000001						; 2
-	BEQ .display_bird	  			; 2/3
-	JMP .display_obstacle			; 3
+	BEQ .display_obstacle	  	; 2/3
+	JMP .display_bird					; 3
 ; -----------------------
 
 ; ----------------------------------
@@ -867,6 +908,7 @@ forest_floor SUBROUTINE forest_floor
 ; into FOLIAGE space to set the playfield values
 
 	STA WSYNC
+	STA HMOVE
 
 	; disable obstacles - we don't want the "trees" to extend into the forest floor
 	STA ENAM0
@@ -889,6 +931,7 @@ forest_floor SUBROUTINE forest_floor
 	DEX													; 2
 	BEQ scoring									; 2/3
 	STA WSYNC
+	STA HMOVE
 	JMP .next_scanline					; 3
 
 ; ----------------------------------
