@@ -103,7 +103,6 @@ NEXT_BRANCH						ds 1
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
 OBSTACLE_0_DRAW				ds 1
 OBSTACLE_1_DRAW				ds 1
-OBSTACLE_0_NUSIZ			ds 1
 OBSTACLE_1_NUSIZ			ds 1
 
 ; pre-calculated GRP0
