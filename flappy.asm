@@ -4,6 +4,7 @@
 	include macro.h
 	include vcs_extra.h
 
+
 ; program tunables 
 ; TODO: alter these according to console difficulty setting
 
@@ -39,8 +40,10 @@ BIRD_LOW_DEATH	=	$10
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
 OBSTACLE_WIDTH				= %00100000		; quad width
-BIRD_WIDTH						= %00000101   ; single instance, double width
-NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_WIDTH
+OBSTACLE_WIDTH_BRANCH	= %00110000		; octuple width
+BIRD_APPEARANCE				= %00000101   ; single instance, double width
+NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_APPEARANCE
+BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | BIRD_APPEARANCE
 
 ; speed/width of obstacle when it's being reset
 ; prevents extra collisions (which cause extra scoring)
@@ -82,15 +85,11 @@ SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
 ; value for next foliage (playfield) - points to FOLIAGE
 NEXT_FOLIAGE				ds 1
 
-; value for next trunk - points to TRUNK
-NEXT_TRUNK					ds 1
-
 ; obstacles
 OB_0_START					ds 1
 OB_0_END						ds 1
 OB_1_START					ds 1
 OB_1_END						ds 1
-OB_0_BRANCH					ds 1
 OB_1_BRANCH					ds 1
 
 ; current speed of obstacle
@@ -98,11 +97,14 @@ CURRENT_OB_0_SPEED		ds 1
 CURRENT_OB_1_SPEED		ds 1
 
 ; start value for next obstacle - points to OBSTACLES
-NEXT_OBSTACLE				ds 1
+NEXT_OBSTACLE					ds 1
+NEXT_BRANCH						ds 1
 
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
 OBSTACLE_0_DRAW				ds 1
 OBSTACLE_1_DRAW				ds 1
+OBSTACLE_0_NUSIZ			ds 1
+OBSTACLE_1_NUSIZ			ds 1
 
 ; pre-calculated GRP0
 BIRD_DRAW							ds 1
@@ -131,6 +133,11 @@ SPRITE_LINES				=	7
 OBSTACLES				HEX 15 25 35 45 55 65
 OBSTACLES_CT		= 6
 
+; table of branches (the lower the number, the lower the obstacle)
+; note: we test for branch on the odd scanlines of the play area so these values should be odd
+BRANCHES				HEX 19 27 33 39 45 59 71
+BRANCHES_CT			= 7
+
 ; foliage - playfield data
 ; (see ".display_foliage" subroutine for full and laboured explanation)
 FOLIAGE
@@ -138,9 +145,6 @@ FOLIAGE_1	.byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001
 FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101
 FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
 FOLIAGE_CHAOS_CYCLE	= 7
-
-TRUNK				HEX 01 01 FF 01 FF FF 01 FF 
-TRUNK_NUM		= 8
 
 ; digits - used for scoring
 DIGITS
@@ -218,13 +222,14 @@ game_init SUBROUTINE game_init
 	STA DIGIT_ADDRESS_0+1
 	STA DIGIT_ADDRESS_1+1
 
-	; setup obstacle randomiser
+	; initialise obstacles
 	LDY #$3
 	LDA OBSTACLES,Y
 	STA OB_0_START
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OB_0_END
+
 	LDY #$5
 	LDA OBSTACLES,Y
 	STA OB_1_START
@@ -232,23 +237,24 @@ game_init SUBROUTINE game_init
 	ADC #OBSTACLE_WINDOW
 	STA OB_1_END
 	STY NEXT_OBSTACLE
-	LDY #$2
-	STA OB_0_BRANCH
+
 	LDY #$3
+	LDA BRANCHES,Y
 	STA OB_1_BRANCH
+	STY NEXT_BRANCH
 
 	; setup attributes that don't change during the game
 
 	; the following system registers remain constant throughout game
 
-	; playfield priority - foliage in front of obstacles
-	LDA #$4
-	STA CTRLPF
-
 	; width of obstacles and player size
 	LDA #NORMAL_NUSIZ_VAL
 	STA NUSIZ0
 	STA NUSIZ1
+
+	; playfield priority - foliage in front of obstacles
+	LDA #$4
+	STA CTRLPF
 
 
 ; ----------------------------------
@@ -383,9 +389,12 @@ game_vblank_play SUBROUTINE game_vblank_play
 	STA HMM1
 
 	MULTI_COUNT_THREE_CMP 0
-	BEQ game_vblank_player_sprite
+	BEQ .far_jmp
 	BMI game_vblank_collisions
 	BPL game_vblank_foliage
+
+.far_jmp
+	JMP game_vblank_player_sprite
 
 	; -------------
 	; GAME - VBLANK - PLAY - FOLIAGE
@@ -436,6 +445,8 @@ game_vblank_collisions
 	ADC #OBSTACLE_WINDOW
 	STA OB_0_END
 
+	; NOTE: no branch for obstacle 0
+
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
 	STA CURRENT_OB_0_SPEED
@@ -452,6 +463,11 @@ game_vblank_collisions
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OB_1_END
+
+	; calculate branch for obstacle 1
+	LDY NEXT_BRANCH
+	LDA BRANCHES,Y
+	STA OB_1_BRANCH
 
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
@@ -517,6 +533,9 @@ game_vblank_player_sprite
 	; kernel will have run at least once before we next reference the
 	; variable
 	INC NEXT_OBSTACLE
+
+	; ditto for NEXT_BRANCH
+	INC NEXT_BRANCH
 
 	; do nothing if fire is being held from last frame
 	LDX FIRE_HELD
@@ -626,8 +645,9 @@ game_vblank_end SUBROUTINE game_vblank_end
 	; note: we do this every frame because RESP0 is used and moved for 
 	; the scoring subroutine
 	POS_SCREEN_LEFT RESP0, 4
+	POS_SCREEN_LEFT RESP1, 4
 
-game_vblank_end_more SUBROUTINE game_vblank_end
+game_vblank_end_more SUBROUTINE game_vblank_end_more
 	; setup display kernel
 
 	; do horizontal movement
@@ -747,6 +767,20 @@ game_play_area SUBROUTINE game_play_area
 	; there's another one at the beginning of ".display_bird". none of the following should
 	; cause any visual artefacts
 
+	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
+	LDA #$0
+	STA ENABL
+
+	; no playfield in the play area
+	STA PF0
+	STA PF1
+	STA PF2
+
+	; set up play area
+	; NOTE: there has not been a WSYNC since the beginning of the last ".display_foliage" loop
+	; there's another one at the beginning of ".display_bird". none of the following should
+	; cause any visual artefacts
+
 	; no playfield in the play area
 	STA PF0
 	STA PF1
@@ -765,19 +799,17 @@ game_play_area SUBROUTINE game_play_area
 	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 	; to set the sprite line
 
-; -----------------------
 .display_bird
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
-	STA HMOVE
+	STA HMOVE									; 3
 
 	LDA BIRD_DRAW							; 3
 	STA GRP0									; 3
 
 	; maximum 22 cycles in HBLANK
-	;	 6 cycles used
-	; 
-	; 16 cycles until end of HBLANK
+	;	 9 cycles used
+	; 14 cycles until end of HBLANK
 
 .precalc_sprite
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
@@ -798,22 +830,32 @@ game_play_area SUBROUTINE game_play_area
 
 .precalc_sprite_done
 
-	; NOTE: save the JMP cycles by making ".next_scanline" a macro
+	; precalculate branch placement in time for next .display_obstacle cycle
+.precalc_branch_placement
+	LDA #NORMAL_NUSIZ_VAL			; 3
+	CPX OB_1_BRANCH						; 3
+	BNE .store_branch_placement	; 2/3
+	LDA #BRANCH_NUSIZ_VAL			; 3
+.store_branch_placement
+	STA OBSTACLE_1_NUSIZ			; 3
+
 	JMP .next_scanline				; 3
 
 	; longest path
-	;   31 cycles
+	;   47 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 47
-	; 29 cycles remaining
-; -----------------------
+	; = 64
+	; 12 cycles remaining
 
-; -----------------------
+
 .display_obstacle
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
-	STA HMOVE
+	STA HMOVE									; 3
+
+	LDA OBSTACLE_1_NUSIZ			; 3
+	STA NUSIZ1								; 3
 
 	LDA OBSTACLE_0_DRAW				; 3
 	STA ENAM0									; 3
@@ -821,9 +863,8 @@ game_play_area SUBROUTINE game_play_area
 	STA ENAM1									; 3
 
 	; maximum 22 cycles in HBLANK
-	;	 12 cycles used
-	; 
-	; 10 cycles until end of HBLANK
+	;	 21 cycles used
+	; 1 cycles until end of HBLANK
 
 .precalc_obstacles
 	; we don't have time in the HBLANK to do all this comparing and branching
@@ -846,20 +887,18 @@ game_play_area SUBROUTINE game_play_area
 	CPX OB_1_START						; 3
 	BCC .obstacle_1_done			; 2/3
 	CPX OB_1_END							; 3
-	BCS .obstacle_1_done			; 2/3
+	BCS .obstacle_1_done			; 2/3	
 	LDA #$0										; 2
 .obstacle_1_done
 	STA OBSTACLE_1_DRAW				; 3
 
 	; longest path
-	;		46 cycles
+	;		55 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 62
-	; 14 cycles remaining
-; -----------------------
+	; = 71
+	; 5 cycles remaining
 
-; -----------------------
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												; 2
@@ -870,7 +909,7 @@ game_play_area SUBROUTINE game_play_area
 	AND #%00000001						; 2
 	BEQ .display_obstacle	  	; 2/3
 	JMP .display_bird					; 3
-; -----------------------
+
 
 ; ----------------------------------
 ; GAME - DISPLAY - FOREST_FLOOR 
@@ -888,11 +927,11 @@ forest_floor SUBROUTINE forest_floor
 	; preload accumulator with 0 in time to disable obstacles in the next HBLANK
 	LDA #$0
 
-; X register contains the number of VISIBLE_LINES_FLOOR remaining
+	; X register contains the number of VISIBLE_LINES_FLOOR remaining
 
-; Y register contains the NEXT_FOLIAGE value
-; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-; into FOLIAGE space to set the playfield values
+	; Y register contains the NEXT_FOLIAGE value
+	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+	; into FOLIAGE space to set the playfield values
 
 	STA WSYNC
 	STA HMOVE
@@ -921,13 +960,10 @@ forest_floor SUBROUTINE forest_floor
 	STA HMOVE
 	JMP .next_scanline					; 3
 
+
 ; ----------------------------------
 ; GAME - DISPLAY - SCORING 
 scoring SUBROUTINE scoring
-	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
-	LDA #$0
-	STA ENABL
-
 	LDA PLAY_STATE
 	BEQ .display_score
 	JMP game_overscan
@@ -994,9 +1030,9 @@ scoring SUBROUTINE scoring
 
 	LDY #DIGIT_LINES
 
-; Y register contains number of DIGIT_LINES remaining
-; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-; to set the sprite line
+	; Y register contains number of DIGIT_LINES remaining
+	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+	; to set the sprite line
 
 .scoring_loop
 	STA WSYNC
@@ -1009,6 +1045,7 @@ scoring SUBROUTINE scoring
 	DEY													; 2
 	BMI game_overscan						; 2/3
 	JMP .scoring_loop						; 3
+
 
 ; ----------------------------------
 ; GAME - OVERSCAN 
@@ -1033,6 +1070,14 @@ game_overscan SUBROUTINE game_overscan
 	LDY #$0
 	STY NEXT_OBSTACLE
 .next_obstacle
+
+	; limit NEXT_BRANCH to maximum value
+	LDY NEXT_BRANCH
+	CPY #BRANCHES_CT
+	BCC .next_branch
+	LDY #$0
+	STY NEXT_BRANCH
+.next_branch
 
 	MULTI_COUNT_UPDATE
 
