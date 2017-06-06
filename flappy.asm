@@ -122,11 +122,11 @@ DIGIT_ADDRESS_1				ds 2
 
 ; sprite data
 SPRITES
-SPRITE_WINGS_UP			HEX	FF 00 00 00 7E 74 60 40 
-SPRITE_WINGS_FLAT		HEX	FF 00 00 00 7E 64 00 00
-SPRITE_WINGS_DOWN		HEX	FF 40 60 70 7E 04 00 00
+SPRITE_WINGS_UP			HEX	00 00 00 00 7E 74 60 40 
+SPRITE_WINGS_FLAT		HEX	00 00 00 00 7E 64 00 00
+SPRITE_WINGS_DOWN		HEX	00 40 60 70 7E 04 00 00
 SPRITE_LINES				=	7
-; NOTE: first FF in each sprite is a boundry byte - value is unimportant
+; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
 
 ; table of obstacles (the lower the number, the lower the obstacle)
 OBSTACLES				HEX 15 25 35 45 55 65
@@ -242,19 +242,18 @@ game_init SUBROUTINE game_init
 	STA OB_1_BRANCH
 	STY NEXT_BRANCH
 
-	; setup attributes that don't change during the game
-
-	; the following system registers remain constant throughout game
-
-	; width of obstacles and player size
-	LDA #NORMAL_NUSIZ_VAL
-	STA NUSIZ0
-	STA NUSIZ1
+	; the following system registers remain (mostly) constant throughout game
 
 	; playfield priority - foliage in front of obstacles
 	LDA #$4
 	STA CTRLPF
+ 
+	; width of obstacles and player size
+	LDA #NORMAL_NUSIZ_VAL
+	STA NUSIZ0
 
+	; NUSIZ1 changes to accomodate tree branches 
+	STA NUSIZ1
 
 ; ----------------------------------
 ; GAME RESTART
@@ -433,7 +432,6 @@ game_vblank_collisions
 
 	JMP game_vblank_end
 
-; TODO: make reset_obstacle_0 and reset_obstacle_1 more efficient
 .reset_obstacle_0
 	; get new bottom for obstacle 0
 	LDY NEXT_OBSTACLE
@@ -451,6 +449,13 @@ game_vblank_collisions
 	STA CURRENT_OB_0_SPEED
 	STA HMM0
 
+	; reset screen position
+	POS_SCREEN_LEFT RESM0, 0
+
+	; the combination of reset position and altered speed has the effect
+	; of completely masking changes to the obstacles appearance when
+	; it is reused
+
 	JMP .obstacle_reset_done
 
 .reset_obstacle_1
@@ -463,7 +468,7 @@ game_vblank_collisions
 	ADC #OBSTACLE_WINDOW
 	STA OB_1_END
 
-	; calculate branch for obstacle 1
+	; get new branch for obstacle 1
 	LDY NEXT_BRANCH
 	LDA BRANCHES,Y
 	STA OB_1_BRANCH
@@ -472,6 +477,13 @@ game_vblank_collisions
 	LDA #OBSTACLE_EXIT_SPEED
 	STA CURRENT_OB_1_SPEED
 	STA HMM1
+
+	; reset screen position
+	POS_SCREEN_LEFT RESM1, 0
+
+	; the combination of reset position and altered speed has the effect
+	; of completely masking changes to the obstacles appearance when
+	; it is reused
 
 .obstacle_reset_done
 	; increase score -- using decimal addition
@@ -695,26 +707,26 @@ game_vblank_end_more SUBROUTINE game_vblank_end_more
 
 foliage SUBROUTINE foliage
 
-; A should be zero after VBLANK_KERNEL_END
+	; A should be zero after VBLANK_KERNEL_END
 
-; X register contains the number of VISIBLE_LINES_FOLIAGE remaining
+	; X register contains the number of VISIBLE_LINES_FOLIAGE remaining
 
-; Y register contains the NEXT_FOLIAGE value
-; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-; into FOLIAGE space to set the playfield values
-;
-; we increase Y after every time we access it (after every change to the playfield - 3 per cycle)
-; in this subroutine: there are VISIBLE_LINES_FOLIAGE
-; scanlines in this part of the display; the main body of the routine is run every
-; VISIBLE_LINES_PER_FOLIAGE; so:
-;
-;			max foliage index = NEXT_FOLIAGE + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
-;
-; as is, the routine would draw the same foliage every frame. to introduce some randomness,
-; NEXT_FOLIAGE is increased by one every THREE_CYCLE frames in the vblank kernel. the maximum
-; vaulue of NEXT_FOLIAGE at the start of the .display_foliage subroutine is therefore:
-;
-;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - mex_foliage_index
+	; Y register contains the NEXT_FOLIAGE value
+	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
+	; into FOLIAGE space to set the playfield values
+	;
+	; we increase Y after every time we access it (after every change to the playfield - 3 per cycle)
+	; in this subroutine: there are VISIBLE_LINES_FOLIAGE
+	; scanlines in this part of the display; the main body of the routine is run every
+	; VISIBLE_LINES_PER_FOLIAGE; so:
+	;
+	;			max foliage index = NEXT_FOLIAGE + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
+	;
+	; as is, the routine would draw the same foliage every frame. to introduce some randomness,
+	; NEXT_FOLIAGE is increased by one every THREE_CYCLE frames in the vblank kernel. the maximum
+	; vaulue of NEXT_FOLIAGE at the start of the .display_foliage subroutine is therefore:
+	;
+	;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - mex_foliage_index
 
 .display_foliage
 
@@ -766,21 +778,14 @@ game_play_area SUBROUTINE game_play_area
 	; there's another one at the beginning of ".display_bird". none of the following should
 	; cause any visual artefacts
 
+	STA WSYNC
+	STA HMOVE
+
 	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
 	LDA #$0
 	STA ENABL
 
-	; no playfield in the play area
-	STA PF0
-	STA PF1
-	STA PF2
-
 	; set up play area
-	; NOTE: there has not been a WSYNC since the beginning of the last ".display_foliage" loop
-	; there's another one at the beginning of ".display_bird". none of the following should
-	; cause any visual artefacts
-
-	; no playfield in the play area
 	STA PF0
 	STA PF1
 	STA PF2
@@ -814,38 +819,30 @@ game_play_area SUBROUTINE game_play_area
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
 	CPX BIRD_POS							; 2
 	BCS .precalc_sprite_done	; 2/3
-
 	TYA												; 2
 	BMI .precalc_sprite_done	; 2/3
-	BEQ	.precalc_sprite_off		; 2/3
-
 	LDA (SPRITE_ADDRESS),Y		; 5
 	STA BIRD_DRAW							; 3 
 	DEY												; 2
-	JMP .precalc_sprite_done	; 3
-
-.precalc_sprite_off
-	STY BIRD_DRAW							; 3
-
 .precalc_sprite_done
 
 	; precalculate branch placement in time for next .display_obstacle cycle
-.precalc_branch_placement
+.precalc_branch
 	LDA #NORMAL_NUSIZ_VAL			; 3
 	CPX OB_1_BRANCH						; 3
-	BNE .store_branch_placement	; 2/3
+	BNE .precalc_branch_done	; 2/3
 	LDA #BRANCH_NUSIZ_VAL			; 3
-.store_branch_placement
+.precalc_branch_done
 	STA OBSTACLE_1_NUSIZ			; 3
 
 	JMP .next_scanline				; 3
 
 	; longest path
-	;   47 cycles
+	;   44 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 64
-	; 12 cycles remaining
+	; = 61
+	; 15 cycles remaining
 
 
 .display_obstacle
@@ -919,21 +916,16 @@ forest_floor SUBROUTINE forest_floor
 	LDA #FOREST_LEAVES_COLOR
 	STA COLUPF
 
-	; set up forest floor subroutine
-	LDX #VISIBLE_LINES_FLOOR
 	LDY NEXT_FOLIAGE
-
-	; preload accumulator with 0 in time to disable obstacles in the next HBLANK
-	LDA #$0
-
-	; X register contains the number of VISIBLE_LINES_FLOOR remaining
-
-	; Y register contains the NEXT_FOLIAGE value
-	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-	; into FOLIAGE space to set the playfield values
+	LDX FOLIAGE,Y
+	LDA #$00
 
 	STA WSYNC
 	STA HMOVE
+
+	STX PF0
+	STX PF1
+	STX PF2
 
 	; disable obstacles - we don't want the "trees" to extend into the forest floor
 	STA ENAM0
@@ -942,16 +934,9 @@ forest_floor SUBROUTINE forest_floor
 	; define the forest floor playfield once per frame
 	LDA #FOREST_FLOOR_COLOR
 	STA COLUBK
-	LDA FOLIAGE,Y
-	STA PF0
-	INY
-	LDA FOLIAGE,Y
-	STA PF1
-	INY
-	LDA FOLIAGE,Y
-	STA PF2
 
 	; wait for end of the forest floor ...
+	LDX #VISIBLE_LINES_FLOOR
 .next_scanline
 	DEX													; 2
 	BEQ scoring									; 2/3
