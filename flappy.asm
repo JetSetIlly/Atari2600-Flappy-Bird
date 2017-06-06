@@ -20,14 +20,16 @@ DEATH_REBOUND_SPEED		= $E0 ; speed at which player sprite moves foward during de
 DEATH_OBSTACLE_SPEED	= $00
 
 ; colours
-BACKGROUND_COLOR		=	$D2
-SPRITE_COLOR				= $00
-FOLIAGE_COLOR				= $D0
-FOREST_FLOOR_COLOR	= $20
-FOREST_LEAVES_COLOR = $22
-SCORING_BACKGROUND	= $00
-SCORE_DIGITS				= $0E
-HISCORE_DIGITS			= $F6
+BACKGROUND_COLOR				=	$D2
+FOREST_COLOR_A					= $E0
+FOREST_COLOR_B					= $D0
+SPRITE_COLOR						= $00
+FOLIAGE_COLOR						= $D0
+FOREST_FLOOR_COLOR			= $20
+FOREST_LEAVES_COLOR			= $22
+SCORING_BACKGROUND			= $00
+SCORE_DIGITS						= $0E
+HISCORE_DIGITS					= $F6
 
 
 ; program constants
@@ -108,6 +110,11 @@ OBSTACLE_1_NUSIZ			ds 1
 ; pre-calculated GRP0
 BIRD_DRAW							ds 1
 
+; background trees
+BG_TREES_PF0					ds 1
+BG_TREES_PF1					ds 1
+BG_TREES_PF2					ds 1
+
 ; player score
 SCORE									ds 1
 HISCORE								ds 1
@@ -144,6 +151,11 @@ FOLIAGE_1	.byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001
 FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101
 FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
 FOLIAGE_CHAOS_CYCLE	= 7
+
+; background trees - initial values
+BG_TREES_PF0_INIT	.byte %00001000
+BG_TREES_PF1_INIT	.byte %10100100
+BG_TREES_PF2_INIT	.byte %01001010
 
 ; digits - used for scoring
 DIGITS
@@ -242,12 +254,16 @@ game_init SUBROUTINE game_init
 	STA OB_1_BRANCH
 	STY NEXT_BRANCH
 
+	; initalise background trees
+	LDA BG_TREES_PF0_INIT
+	STA BG_TREES_PF0
+	LDA BG_TREES_PF1_INIT
+	STA BG_TREES_PF1
+	LDA BG_TREES_PF2_INIT
+	STA BG_TREES_PF2
+
 	; the following system registers remain (mostly) constant throughout game
 
-	; playfield priority - foliage in front of obstacles
-	LDA #$4
-	STA CTRLPF
- 
 	; width of obstacles and player size
 	LDA #NORMAL_NUSIZ_VAL
 	STA NUSIZ0
@@ -401,7 +417,22 @@ game_vblank_foliage
 	INY
 	CPY #FOLIAGE_CHAOS_CYCLE
 	BCC .foliage_updated
+
+	; update background trees whenever foliage chaos cycle resets
+	;LDA BG_TREES_PF0
+	;BMI .carry_tree
+	;CLC
+	;JMP .rotate_background
+;.carry_tree
+	;SEC
+;.rotate_background
+	;ROL BG_TREES_PF2
+	;ROL BG_TREES_PF1
+	;ROL BG_TREES_PF0
+
+	; finally, do reset of chaos cycle
 	LDY #0
+
 .foliage_updated
 	STY NEXT_FOLIAGE
 
@@ -679,6 +710,10 @@ game_vblank_end_more SUBROUTINE game_vblank_end_more
 	STY ENAM0
 	STY ENAM1
 
+	; playfield priority - foliage in front of obstacles
+	LDA #$4
+	STA CTRLPF
+
 	; we have the time so set up foliage subroutine
 	LDA #BACKGROUND_COLOR
 	STA	COLUBK
@@ -778,17 +813,33 @@ game_play_area SUBROUTINE game_play_area
 	; there's another one at the beginning of ".display_bird". none of the following should
 	; cause any visual artefacts
 
+	LDA #$0
+
 	STA WSYNC
 	STA HMOVE
 
 	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
-	LDA #$0
 	STA ENABL
 
-	; set up play area
+	; playfield priority - background trees behind obstacles
+	STA CTRLPF
+
+	; background trees for entire play area
+	MULTI_COUNT_TWO_CMP
+	BNE .trees_off
+	LDA BG_TREES_PF0
+	STA PF0
+	LDA BG_TREES_PF1
+	STA PF1
+	LDA BG_TREES_PF2
+	STA PF2
+	JMP .trees_done
+.trees_off
+	; using the contents of the multi count for the playfield
 	STA PF0
 	STA PF1
 	STA PF2
+.trees_done
 
 	; prepare for loop
 	LDX #VISIBLE_LINE_PLAYAREA
@@ -810,6 +861,9 @@ game_play_area SUBROUTINE game_play_area
 
 	LDA BIRD_DRAW							; 3
 	STA GRP0									; 3
+
+	LDA #FOREST_COLOR_A
+	STA COLUPF
 
 	; maximum 22 cycles in HBLANK
 	;	 9 cycles used
@@ -857,6 +911,9 @@ game_play_area SUBROUTINE game_play_area
 	STA ENAM0									; 3
 	LDA OBSTACLE_1_DRAW				; 3
 	STA ENAM1									; 3
+
+	LDA #FOREST_COLOR_B
+	STA COLUPF
 
 	; maximum 22 cycles in HBLANK
 	;	 21 cycles used
@@ -911,21 +968,12 @@ game_play_area SUBROUTINE game_play_area
 ; GAME - DISPLAY - FOREST_FLOOR 
 
 forest_floor SUBROUTINE forest_floor
-	; change colour of playfield to simulate leaves
-	; we'll change background colour in the next HBLANK
-	LDA #FOREST_LEAVES_COLOR
-	STA COLUPF
-
 	LDY NEXT_FOLIAGE
 	LDX FOLIAGE,Y
 	LDA #$00
 
 	STA WSYNC
 	STA HMOVE
-
-	STX PF0
-	STX PF1
-	STX PF2
 
 	; disable obstacles - we don't want the "trees" to extend into the forest floor
 	STA ENAM0
@@ -934,6 +982,15 @@ forest_floor SUBROUTINE forest_floor
 	; define the forest floor playfield once per frame
 	LDA #FOREST_FLOOR_COLOR
 	STA COLUBK
+
+	; change colour of playfield to simulate leaves
+	; we'll change background colour in the next HBLANK
+	LDA #FOREST_LEAVES_COLOR
+	STA COLUPF
+
+	STX PF0
+	STX PF1
+	STX PF2
 
 	; wait for end of the forest floor ...
 	LDX #VISIBLE_LINES_FLOOR
@@ -1053,6 +1110,7 @@ game_overscan SUBROUTINE game_overscan
 	BCC .next_obstacle
 	LDY #$0
 	STY NEXT_OBSTACLE
+
 .next_obstacle
 
 	; limit NEXT_BRANCH to maximum value
