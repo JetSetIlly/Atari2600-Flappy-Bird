@@ -152,10 +152,12 @@ FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011
 FOLIAGE_CHAOS_CYCLE	= 7
 
 ; background trees - initial values
-FOREST_MID_0_INIT	.byte %00001000
-FOREST_MID_1_INIT	.byte %10000100
-FOREST_MID_2_INIT	.byte %01000010
-FOREST_BACK				.byte %00010000
+FOREST_MID_0_INIT	.byte %00100000
+FOREST_MID_1_INIT	.byte %00010000
+FOREST_MID_2_INIT	.byte %00001000
+FOREST_STATIC_0		.byte %10000000
+FOREST_STATIC_1		.byte %00100000	
+FOREST_STATIC_2		.byte %10010000
 
 ; digits - used for scoring
 DIGITS
@@ -418,23 +420,28 @@ game_vblank_foliage
 	CPY #FOLIAGE_CHAOS_CYCLE
 	BCC .foliage_updated
 
-	; update forest whenever foliage chaos cycle resets
-	; and when two count is zero
-
-	; if FOLIAGE_CHAOS_CYCLE == 2 then forst will update every 14 frames
-	MULTI_COUNT_TWO_CMP
-	BNE .forest_done
-
-	LDA FOREST_MID_0
-	BMI .carry_tree
-	CLC
-	JMP .rotate_forest
-.carry_tree
-	SEC
+	; rotate forest whenever foliage chaos cycle resets
 .rotate_forest
-	ROL FOREST_MID_2
+	CLC
+	ROR FOREST_MID_0
+	LDA FOREST_MID_0
+	AND #%00001000
+	BNE .jump_tree
+	JMP .cont_forest
+.jump_tree
+	LDA #%11110000
+	AND FOREST_MID_0
+	STA FOREST_MID_0
+	SEC
+.cont_forest
+	ROR FOREST_MID_2
 	ROL FOREST_MID_1
-	ROL FOREST_MID_0
+	BCS .carry_tree
+	JMP .forest_done
+.carry_tree
+	LDA #%10000000
+	ORA FOREST_MID_0
+	STA FOREST_MID_0
 .forest_done
 
 	; finally, do reset of chaos cycle
@@ -836,7 +843,7 @@ game_play_area SUBROUTINE game_play_area
 	STA COLUPF
 
 	MULTI_COUNT_TWO_CMP
-	BEQ .forest_background
+	BEQ .forest_static
 	LDA FOREST_MID_0
 	STA PF0
 	LDA FOREST_MID_1
@@ -844,10 +851,12 @@ game_play_area SUBROUTINE game_play_area
 	LDA FOREST_MID_2
 	STA PF2
 	JMP .forest_done
-.forest_background
-	LDA FOREST_BACK
+.forest_static
+	LDA FOREST_STATIC_0
 	STA PF0
+	LDA FOREST_STATIC_1
 	STA PF1
+	LDA FOREST_STATIC_2
 	STA PF2
 .forest_done
 
