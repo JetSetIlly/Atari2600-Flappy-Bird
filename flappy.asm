@@ -457,9 +457,9 @@ game_vblank_foliage
 game_vblank_collisions
 	; check bird collision
 	BIT CXM1P
-	;BMI .bird_collision
+	BMI .bird_collision
 	BIT CXM0P
-	;BVS .bird_collision
+	BVS .bird_collision
 
 	; check for collision of obstacles with backstop
 	BIT CXM0FB
