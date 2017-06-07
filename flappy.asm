@@ -9,7 +9,7 @@
 ; TODO: alter these according to console difficulty setting
 
 OBSTACLE_SPEED		= $10
-OBSTACLE_WINDOW		= $1B
+OBSTACLE_WINDOW		= $1F
 CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
 CLIMB_FRAMES			=	$5
 GLIDE_FRAMES			=	CLIMB_FRAMES + $2
@@ -21,8 +21,7 @@ DEATH_OBSTACLE_SPEED	= $00
 
 ; colours
 BACKGROUND_COLOR				=	$D2
-FOREST_COLOR_A					= $E0
-FOREST_COLOR_B					= $D0
+FOREST_COLOR						= $E0
 SPRITE_COLOR						= $00
 FOLIAGE_COLOR						= $D0
 FOREST_FLOOR_COLOR			= $20
@@ -111,9 +110,9 @@ OBSTACLE_1_NUSIZ			ds 1
 BIRD_DRAW							ds 1
 
 ; background trees
-BG_TREES_PF0					ds 1
-BG_TREES_PF1					ds 1
-BG_TREES_PF2					ds 1
+FOREST_MID_0					ds 1
+FOREST_MID_1					ds 1
+FOREST_MID_2					ds 1
 
 ; player score
 SCORE									ds 1
@@ -153,9 +152,10 @@ FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011
 FOLIAGE_CHAOS_CYCLE	= 7
 
 ; background trees - initial values
-BG_TREES_PF0_INIT	.byte %00001000
-BG_TREES_PF1_INIT	.byte %10100100
-BG_TREES_PF2_INIT	.byte %01001010
+FOREST_MID_0_INIT	.byte %00001000
+FOREST_MID_1_INIT	.byte %10000100
+FOREST_MID_2_INIT	.byte %01000010
+FOREST_BACK				.byte %00010000
 
 ; digits - used for scoring
 DIGITS
@@ -255,12 +255,12 @@ game_init SUBROUTINE game_init
 	STY NEXT_BRANCH
 
 	; initalise background trees
-	LDA BG_TREES_PF0_INIT
-	STA BG_TREES_PF0
-	LDA BG_TREES_PF1_INIT
-	STA BG_TREES_PF1
-	LDA BG_TREES_PF2_INIT
-	STA BG_TREES_PF2
+	LDA FOREST_MID_0_INIT
+	STA FOREST_MID_0
+	LDA FOREST_MID_1_INIT
+	STA FOREST_MID_1
+	LDA FOREST_MID_2_INIT
+	STA FOREST_MID_2
 
 	; the following system registers remain (mostly) constant throughout game
 
@@ -418,17 +418,24 @@ game_vblank_foliage
 	CPY #FOLIAGE_CHAOS_CYCLE
 	BCC .foliage_updated
 
-	; update background trees whenever foliage chaos cycle resets
-	;LDA BG_TREES_PF0
-	;BMI .carry_tree
-	;CLC
-	;JMP .rotate_background
-;.carry_tree
-	;SEC
-;.rotate_background
-	;ROL BG_TREES_PF2
-	;ROL BG_TREES_PF1
-	;ROL BG_TREES_PF0
+	; update forest whenever foliage chaos cycle resets
+	; and when two count is zero
+
+	; if FOLIAGE_CHAOS_CYCLE == 2 then forst will update every 14 frames
+	MULTI_COUNT_TWO_CMP
+	BNE .forest_done
+
+	LDA FOREST_MID_0
+	BMI .carry_tree
+	CLC
+	JMP .rotate_forest
+.carry_tree
+	SEC
+.rotate_forest
+	ROL FOREST_MID_2
+	ROL FOREST_MID_1
+	ROL FOREST_MID_0
+.forest_done
 
 	; finally, do reset of chaos cycle
 	LDY #0
@@ -815,33 +822,38 @@ game_play_area SUBROUTINE game_play_area
 
 	LDA #$0
 
-	STA WSYNC
-	STA HMOVE
+	; playfield priority - background trees behind obstacles
+	STA CTRLPF
 
 	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
 	STA ENABL
 
-	; playfield priority - background trees behind obstacles
-	STA CTRLPF
+	STA WSYNC
+	STA HMOVE
 
-	; background trees for entire play area
+	; set forest for entire play area
+	LDA #FOREST_COLOR
+	STA COLUPF
+
 	MULTI_COUNT_TWO_CMP
-	BNE .trees_off
-	LDA BG_TREES_PF0
+	BEQ .forest_background
+	LDA FOREST_MID_0
 	STA PF0
-	LDA BG_TREES_PF1
+	LDA FOREST_MID_1
 	STA PF1
-	LDA BG_TREES_PF2
+	LDA FOREST_MID_2
 	STA PF2
-	JMP .trees_done
-.trees_off
-	; using the contents of the multi count for the playfield
+	JMP .forest_done
+.forest_background
+	LDA FOREST_BACK
 	STA PF0
 	STA PF1
 	STA PF2
-.trees_done
+.forest_done
+
 
 	; prepare for loop
+
 	LDX #VISIBLE_LINE_PLAYAREA
 	LDY #SPRITE_LINES
 
@@ -861,9 +873,6 @@ game_play_area SUBROUTINE game_play_area
 
 	LDA BIRD_DRAW							; 3
 	STA GRP0									; 3
-
-	LDA #FOREST_COLOR_A
-	STA COLUPF
 
 	; maximum 22 cycles in HBLANK
 	;	 9 cycles used
@@ -911,9 +920,6 @@ game_play_area SUBROUTINE game_play_area
 	STA ENAM0									; 3
 	LDA OBSTACLE_1_DRAW				; 3
 	STA ENAM1									; 3
-
-	LDA #FOREST_COLOR_B
-	STA COLUPF
 
 	; maximum 22 cycles in HBLANK
 	;	 21 cycles used
