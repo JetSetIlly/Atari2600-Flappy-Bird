@@ -140,7 +140,7 @@ OBSTACLES_CT		= 6
 
 ; table of branches (the lower the number, the lower the obstacle)
 ; note: we test for branch on the odd scanlines of the play area so these values should be odd
-BRANCHES				HEX 19 27 33 39 45 59 71
+BRANCHES				HEX 19 27 31 39 45 59 71
 BRANCHES_CT			= 7
 
 ; foliage - playfield data
@@ -153,7 +153,7 @@ FOLIAGE_CHAOS_CYCLE	= 7
 
 ; background trees - initial values
 FOREST_MID_0_INIT	.byte %00100000
-FOREST_MID_1_INIT	.byte %00010000
+FOREST_MID_1_INIT	.byte %00011000
 FOREST_MID_2_INIT	.byte %00001000
 FOREST_STATIC_0		.byte %10000000
 FOREST_STATIC_1		.byte %00100000	
@@ -444,7 +444,7 @@ game_vblank_foliage
 	STA FOREST_MID_0
 .forest_done
 
-	; finally, do reset of chaos cycle
+	; reset chaos cycle
 	LDY #0
 
 .foliage_updated
@@ -457,9 +457,9 @@ game_vblank_foliage
 game_vblank_collisions
 	; check bird collision
 	BIT CXM1P
-	BMI .bird_collision
+	;BMI .bird_collision
 	BIT CXM0P
-	BVS .bird_collision
+	;BVS .bird_collision
 
 	; check for collision of obstacles with backstop
 	BIT CXM0FB
@@ -715,29 +715,30 @@ game_vblank_end_more SUBROUTINE game_vblank_end_more
 	; reset collision flags every frame
 	STA CXCLR
 
-	; trigger (ball) is turned off before score area
+	; we have the time so set up foliage subroutine
+
+	; turn on trigger (ball) - turned off after foliage
 	LDA #$2
 	STA ENABL
 
-	; turn off obstacles - we'll turn them on in the foliage subroutine
-	LDY #$0
-	STY ENAM0
-	STY ENAM1
+	; obstacles already turned off - will be turned on again halfway through foliage subroutine
 
 	; playfield priority - foliage in front of obstacles
 	LDA #$4
 	STA CTRLPF
 
-	; we have the time so set up foliage subroutine
+	; foliage colours
 	LDA #BACKGROUND_COLOR
 	STA	COLUBK
 	LDA #FOLIAGE_COLOR
 	STA COLUPF
-	LDY NEXT_FOLIAGE
 
 	; X register will contain the current scanline for the duration of the display kernal
 	; starting with VISIBLE_LINES_FOLIAGE and then VISIBLE_LINE_PLAYAREA, loaded later
 	LDX	#VISIBLE_LINES_FOLIAGE
+
+	; Y register keeps pointer to next foliage data to stuff into playfield
+	LDY NEXT_FOLIAGE
 
 	; reset all movmement registers - we'll be calling HMOVE every scanline and we
 	; don't want objects flying all over the screen. move registers will be reset
@@ -777,11 +778,10 @@ foliage SUBROUTINE foliage
 	;
 	;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - mex_foliage_index
 
-.display_foliage
-
-	; test accumulator (VISIBLE_LINES_PER_FOLIAGE)
+.next_foliage
+	; A = VISIBLE_LINES_PER_FOLIAGE 
 	CMP #$0
-	BNE .next_scanline
+	BNE .cont_foliage
 
 	; we're going to clobber the accumulator but that's okay, we're
 	; going to reset it after setting the playfield
@@ -798,24 +798,25 @@ foliage SUBROUTINE foliage
 
 	; start drawing obstacles if we're halfway through the foliage area
 	CPX #VISIBLE_LINES_FOLIAGE / 2
-	BNE .reset_accumulator
+	BNE .reset_foliage_block_count
 	LDA #$2
 	STA ENAM0
 	STA ENAM1
 
-.reset_accumulator
+.reset_foliage_block_count
 	LDA #VISIBLE_LINES_PER_FOLIAGE
 
-.next_scanline
-	; decrement accumulator (VISIBLE_LINES_PER_FOLIAGE)
+.cont_foliage
+	; A = VISIBLE_LINES_PER_FOLIAGE 
 	SEC
 	SBC #$1
 
 	DEX												; 2
 	BEQ game_play_area				; 2/3
+
 	STA WSYNC
 	STA HMOVE
-	JMP .display_foliage			; 3
+	JMP .next_foliage			; 3
 
 
 ; ----------------------------------
@@ -823,17 +824,37 @@ foliage SUBROUTINE foliage
 
 game_play_area SUBROUTINE game_play_area
 	; set up play area
-	; NOTE: there has not been a WSYNC since the beginning of the last ".display_foliage" loop
-	; there's another one at the beginning of ".display_bird". none of the following should
-	; cause any visual artefacts
-
 	LDA #$0
+
+	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
+	STA ENABL
 
 	; playfield priority - background trees behind obstacles
 	STA CTRLPF
 
-	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
-	STA ENABL
+	; we want to stuff the playfield with new data as quickly as possible
+	; prepare playfield data according to which frame (odd/even) and
+	; push results onto stack
+	MULTI_COUNT_TWO_CMP
+	BEQ .precalc_forest_static
+	LDA FOREST_MID_2
+	PHA
+	LDA FOREST_MID_1
+	PHA
+	LDA FOREST_MID_0
+	PHA
+	JMP .end_forest_precalc
+.precalc_forest_static
+	LDA FOREST_STATIC_2
+	ORA FOREST_MID_2
+	PHA
+	LDA FOREST_STATIC_1
+	ORA FOREST_MID_1
+	PHA
+	LDA FOREST_STATIC_0
+	ORA FOREST_MID_0
+	PHA
+.end_forest_precalc
 
 	STA WSYNC
 	STA HMOVE
@@ -841,24 +862,12 @@ game_play_area SUBROUTINE game_play_area
 	; set forest for entire play area
 	LDA #FOREST_COLOR
 	STA COLUPF
-
-	MULTI_COUNT_TWO_CMP
-	BEQ .forest_static
-	LDA FOREST_MID_0
+	PLA
 	STA PF0
-	LDA FOREST_MID_1
+	PLA
 	STA PF1
-	LDA FOREST_MID_2
+	PLA
 	STA PF2
-	JMP .forest_done
-.forest_static
-	LDA FOREST_STATIC_0
-	STA PF0
-	LDA FOREST_STATIC_1
-	STA PF1
-	LDA FOREST_STATIC_2
-	STA PF2
-.forest_done
 
 
 	; prepare for loop
