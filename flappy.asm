@@ -1,4 +1,3 @@
-	
 	processor 6502
 	include vcs.h
 	include macro.h
@@ -24,12 +23,11 @@ BACKGROUND_COLOR				=	$D2
 FOREST_COLOR						= $E0
 SPRITE_COLOR						= $00
 FOLIAGE_COLOR						= $D0
-FOREST_FLOOR_COLOR			= $20
-FOREST_LEAVES_COLOR			= $22
+SWAMP_COLOR							= $B0
+SWAMP_ALT_COLOR					= $B2
 SCORING_BACKGROUND			= $00
 SCORE_DIGITS						= $0E
 HISCORE_DIGITS					= $F6
-
 
 ; program constants
 
@@ -54,14 +52,14 @@ OBSTACLE_EXIT_SPEED		= $20
 FLY_CLIMB_START_FRAME	=	$0
 FLY_DIVE_START_FRAME	=	$FF
 
-BIRD_POS_INIT					=	BIRD_HIGH
+BIRD_POS_INIT					=	BIRD_HIGH / 4 * 3
 FLY_FRAME_INIT				=	FLY_DIVE_START_FRAME
 
 ; visible display area
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
-VISIBLE_LINES_FLOOR				= $03
-VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_FLOOR - VISIBLE_LINES_SCOREAREA
+VISIBLE_LINES_SWAMP				= $03
+VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
 VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; the extra $04 scanlines in the score area are:
 ; * one at the start of the subroutine
@@ -151,7 +149,7 @@ FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011
 FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
 FOLIAGE_CHAOS_CYCLE	= 7
 
-; background trees - initial values
+; background forest - initial values
 FOREST_MID_0_INIT	.byte %00100000
 FOREST_MID_1_INIT	.byte %00011000
 FOREST_MID_2_INIT	.byte %00001000
@@ -979,7 +977,7 @@ game_play_area SUBROUTINE game_play_area
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												; 2
-	BEQ forest_floor					; 2/3
+	BEQ swamp									; 2/3
 
 	; interlace sprite and obstacle drawing
 	TXA												; 2
@@ -989,9 +987,9 @@ game_play_area SUBROUTINE game_play_area
 
 
 ; ----------------------------------
-; GAME - DISPLAY - FOREST_FLOOR 
+; GAME - DISPLAY - SWAMP 
 
-forest_floor SUBROUTINE forest_floor
+swamp SUBROUTINE swamp
 	LDY NEXT_FOLIAGE
 	LDX FOLIAGE,Y
 	LDA #$00
@@ -999,25 +997,25 @@ forest_floor SUBROUTINE forest_floor
 	STA WSYNC
 	STA HMOVE
 
-	; disable obstacles - we don't want the "trees" to extend into the forest floor
+	; disable obstacles - we don't want the "trees" to extend into the forest swamp
 	STA ENAM0
 	STA ENAM1
 
-	; define the forest floor playfield once per frame
-	LDA #FOREST_FLOOR_COLOR
+	; define the forest swamp playfield once per frame
+	LDA #SWAMP_COLOR
 	STA COLUBK
 
-	; change colour of playfield to simulate leaves
+	; change colour of playfield to simulate movement
 	; we'll change background colour in the next HBLANK
-	LDA #FOREST_LEAVES_COLOR
+	LDA #SWAMP_ALT_COLOR
 	STA COLUPF
 
 	STX PF0
 	STX PF1
 	STX PF2
 
-	; wait for end of the forest floor ...
-	LDX #VISIBLE_LINES_FLOOR
+	; wait for end of the swamp ...
+	LDX #VISIBLE_LINES_SWAMP
 .next_scanline
 	DEX													; 2
 	BEQ scoring									; 2/3
