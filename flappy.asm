@@ -1,3 +1,4 @@
+
 	processor 6502
 	include vcs.h
 	include macro.h
@@ -15,26 +16,26 @@ GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 
 ; tunables - but not related to difficulty
 
-DEATH_REBOUND_SPEED		= $E0 ; speed at which player sprite moves foward during death spiral
-DEATH_OBSTACLE_SPEED	= $00
-
 ; colours
-BACKGROUND_COLOR				=	$D2
+FOREST_BACKGROUND				=	$D2
 FOREST_COLOR						= $E0
 SPRITE_COLOR						= $00
 FOLIAGE_COLOR						= $D0
-SWAMP_COLOR							= $B0
-SWAMP_ALT_COLOR					= $B2
+SWAMP_BACKGROUND				= $B0
+SWAMP_COLOR							= $B2
 SCORING_BACKGROUND			= $00
-SCORE_DIGITS						= $0E
-HISCORE_DIGITS					= $F6
+SCORE_COLOR							= $0E
+HISCORE_COLOR						= $F6
 
 ; program constants
 
 ; screen boundaries for bird sprite
-BIRD_HIGH	=	VISIBLE_LINE_PLAYAREA
-BIRD_LOW	=	$10
-BIRD_LOW_DEATH	=	$10
+BIRD_HIGH				=	VISIBLE_LINE_PLAYAREA
+BIRD_LOW				=	$0C
+
+; death rates
+DEATH_SPIRAL_SPEED		= $E0 ; speed at which player sprite moves foward during death spiral
+DEATH_DROWNING_SPEED	= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
@@ -67,8 +68,9 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
 
 ; play state
-PLAY_STATE_PLAY			= $00
-PLAY_STATE_DEATH		= $FF
+PLAY_STATE_PLAY					= $00
+PLAY_STATE_DEATH_SPIRAL	= $FF
+PLAY_STATE_DEATH_DROWN	= $FE
 
 ; data - variables
 	SEG.U RAM 
@@ -77,9 +79,22 @@ MULTI_COUNT_STATE		ds 1	; counts rounds of twos and threes
 PLAY_STATE					ds 1	; state of play - zero is normal, negative is death
 FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
-FLY_FRAME						ds 1	; <0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
-													; if GAME_PLAY < 0 then FLY_FRAME indexes DEATH_SPIRAL
 SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
+
+; FLY_FRAME's meaning changes depending on PLAY_STATE
+;
+; if PLAY_STATE == PLAY_STATE_PLAY
+;	then
+;		<0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
+;
+; if PLAY_STATE == PLAY_STATE_DEATH_SPIRAL
+;	then
+;		FLY_FRAME indexes DEATH_SPIRAL
+;
+; if PLAY_STATE == PLAY_STATE_DEATH_DROWN
+;	then
+;		FLY_FRAME counts number of frames to game reset
+FLY_FRAME						ds 1
 
 ; value for next foliage (playfield) - points to FOLIAGE
 NEXT_FOLIAGE				ds 1
@@ -312,7 +327,7 @@ game_restart SUBROUTINE game_restart
 	; note: RESP0 position is set at the end of the vblank
 
 	; position obstacle trigger (ball) at right most screen edge
-	; this will be hidden because of the aggresive call to HMOVE
+	; this will be hidden because of the aggresive triggering of HMOVE
 	; we do at the beginning of every scanline
 	POS_SCREEN_LEFT RESBL, 2
 
@@ -346,8 +361,36 @@ game_vblank SUBROUTINE game_vblank
 ; GAME - VBLANK - DEATH
 
 game_vblank_death SUBROUTINE game_vblank_death
+	CPX #PLAY_STATE_DEATH_SPIRAL
+	BEQ game_vblank_death_spiral
+
+
+game_vblank_death_drown SUBROUTINE game_vblank_death_drown
+	; slow down death animation
+	MULTI_COUNT_THREE_CMP 0
+	BPL .continue_drowning
+
+	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_SPEED) 
+	LDX FLY_FRAME
+	BEQ .drowning_end
+	DEX 
+	STX FLY_FRAME
+
+	; decrease bird sprite position
+	LDX BIRD_POS
+	DEX
+	STX BIRD_POS
+.continue_drowning
+	JMP game_vblank_end_more
+
+.drowning_end
+	JMP game_restart
+
+
+game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	; set death spriral rebound speed
-	LDA #DEATH_REBOUND_SPEED
+	; note that we do this every frame because we trigger HMCLR every frame
+	LDA #DEATH_SPIRAL_SPEED
 	STA HMP0
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
@@ -545,9 +588,9 @@ game_vblank_collisions
 	LDA SCORE
 	SED
 	CMP HISCORE 
-	BCC .restart_game
+	BCC .bird_collision_reset
 	STA HISCORE
-.restart_game
+.bird_collision_reset
 	CLD
 
 	; prepare death animation
@@ -561,7 +604,7 @@ game_vblank_collisions
 	STA SPRITE_ADDRESS
 
 	; change play state
-	LDA #PLAY_STATE_DEATH
+	LDA #PLAY_STATE_DEATH_SPIRAL
 	STA PLAY_STATE
 
 	; begin fly down anim
@@ -686,6 +729,17 @@ game_vblank_player_sprite
 	LDA #BIRD_LOW
 	STA BIRD_POS
 
+	LDA #DEATH_DROWNING_SPEED
+	STA FLY_FRAME
+
+	; change play state to death by drowning
+	LDA #PLAY_STATE_DEATH_DROWN
+	STA PLAY_STATE
+
+	; use drown sprite
+	;LDA #<SPRITE_WINGS_DROWN
+	;STA SPRITE_ADDRESS
+
 .fly_end
 	; fall through
 
@@ -726,7 +780,7 @@ game_vblank_end_more SUBROUTINE game_vblank_end_more
 	STA CTRLPF
 
 	; foliage colours
-	LDA #BACKGROUND_COLOR
+	LDA #FOREST_BACKGROUND
 	STA	COLUBK
 	LDA #FOLIAGE_COLOR
 	STA COLUPF
@@ -738,7 +792,7 @@ game_vblank_end_more SUBROUTINE game_vblank_end_more
 	; Y register keeps pointer to next foliage data to stuff into playfield
 	LDY NEXT_FOLIAGE
 
-	; reset all movmement registers - we'll be calling HMOVE every scanline and we
+	; reset all movmement registers - we'll be triggering HMOVE every scanline and we
 	; don't want objects flying all over the screen. move registers will be reset
 	; accordingly at the beginning of each frame
 	; note that we should be 24 machine cycles between these writes and
@@ -867,7 +921,6 @@ game_play_area SUBROUTINE game_play_area
 	PLA
 	STA PF2
 
-
 	; prepare for loop
 
 	LDX #VISIBLE_LINE_PLAYAREA
@@ -994,6 +1047,10 @@ swamp SUBROUTINE swamp
 	LDX FOLIAGE,Y
 	LDA #$00
 
+	; make sure we don't draw the bird sprite by accident
+	STA GRP0
+	STA BIRD_DRAW
+
 	STA WSYNC
 	STA HMOVE
 
@@ -1002,12 +1059,12 @@ swamp SUBROUTINE swamp
 	STA ENAM1
 
 	; define the forest swamp playfield once per frame
-	LDA #SWAMP_COLOR
+	LDA #SWAMP_BACKGROUND
 	STA COLUBK
 
 	; change colour of playfield to simulate movement
 	; we'll change background colour in the next HBLANK
-	LDA #SWAMP_ALT_COLOR
+	LDA #SWAMP_COLOR
 	STA COLUPF
 
 	STX PF0
@@ -1045,7 +1102,7 @@ scoring SUBROUTINE scoring
 	BEQ .prep_hiscore
 
 .prep_score
-	LDA #SCORE_DIGITS
+	LDA #SCORE_COLOR
 	STA COLUP0
 	STA COLUP1
 
@@ -1064,7 +1121,7 @@ scoring SUBROUTINE scoring
 	JMP .do_score
 
 .prep_hiscore
-	LDA #HISCORE_DIGITS
+	LDA #HISCORE_COLOR
 	STA COLUP0
 	STA COLUP1
 
@@ -1132,7 +1189,6 @@ game_overscan SUBROUTINE game_overscan
 	BCC .next_obstacle
 	LDY #$0
 	STY NEXT_OBSTACLE
-
 .next_obstacle
 
 	; limit NEXT_BRANCH to maximum value
