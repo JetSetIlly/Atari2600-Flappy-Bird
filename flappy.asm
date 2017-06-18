@@ -19,7 +19,7 @@ GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 ; colours
 FOREST_BACKGROUND				=	$D2
 FOREST_COLOR						= $E0
-SPRITE_COLOR						= $00
+BIRD_COLOR							= $00
 FOLIAGE_COLOR						= $D0
 SWAMP_BACKGROUND				= $B0
 SWAMP_COLOR							= $B2
@@ -42,8 +42,10 @@ DEATH_DROWNING_SPEED	= $0C ; should be the same BIRD_LOW
 OBSTACLE_WIDTH				= %00100000		; quad width
 OBSTACLE_WIDTH_BRANCH	= %00110000		; octuple width
 BIRD_APPEARANCE				= %00000101   ; single instance, double width
-NORMAL_NUSIZ_VAL			= OBSTACLE_WIDTH | BIRD_APPEARANCE
-BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | BIRD_APPEARANCE
+DETAILS_APPEARANCE		= %00000000   ; single instance, double width
+BIRD_NUSIZ_VAL				= OBSTACLE_WIDTH | BIRD_APPEARANCE
+TREE_NUSIZ_VAL				= OBSTACLE_WIDTH | DETAILS_APPEARANCE
+BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | DETAILS_APPEARANCE
 
 ; speed/width of obstacle when it's being reset
 ; prevents extra collisions (which cause extra scoring)
@@ -75,11 +77,14 @@ PLAY_STATE_DEATH_DROWN	= $FE
 ; data - variables
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
-MULTI_COUNT_STATE		ds 1	; counts rounds of twos and threes
-PLAY_STATE					ds 1	; state of play - zero is normal, negative is death
-FIRE_HELD						ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
-BIRD_POS						ds 1	; between BIRD_HIGH and BIRD_LOW
-SPRITE_ADDRESS			ds 2	; which sprite to use in the display kernel
+MULTI_COUNT_STATE				ds 1	; counts rounds of twos and threes
+PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
+FIRE_HELD								ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
+BIRD_POS								ds 1	; between BIRD_HIGH and BIRD_LOW
+
+; which bird/detail sprite to use in the display kernel
+BIRD_SPRITE_ADDRESS			ds 2
+DETAIL_SPRITE_ADDRESS			ds 2
 
 ; FLY_FRAME's meaning changes depending on PLAY_STATE
 ;
@@ -121,6 +126,7 @@ OBSTACLE_1_NUSIZ			ds 1
 
 ; pre-calculated GRP0
 BIRD_DRAW							ds 1
+DETAIL_DRAW						ds 1
 
 ; background trees
 FOREST_MID_0					ds 1
@@ -140,11 +146,13 @@ DIGIT_ADDRESS_1				ds 2
 	ORG $F000		; start of cart ROM
 
 ; sprite data
-SPRITES
-SPRITE_WINGS_UP			HEX	00 00 00 00 7E 74 60 40 
-SPRITE_WINGS_FLAT		HEX	00 00 00 00 7E 64 00 00
-SPRITE_WINGS_DOWN		HEX	00 40 60 70 7E 04 00 00
-SPRITE_LINES				=	7
+WINGS_SPRITE
+WINGS_UP				HEX	00 00 00 00 78 70 60 40 
+WINGS_FLAT			HEX	00 00 00 00 78 40 00 00
+WINGS_DOWN			HEX	00 40 60 70 78 00 00 00
+DETAIL_SPRITE		HEX 00 00 04 04 1A 06 00 00
+SPRITE_LINES		=	7
+
 ; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
 
 ; table of obstacles (the lower the number, the lower the obstacle)
@@ -232,18 +240,21 @@ title_screen SUBROUTINE title_screen
 ; GAME INITIALISATION
 
 game_init SUBROUTINE game_init
-	; SPRITE_ADDRESS refers to players sprite to use in the current frame
-	LDA #<SPRITES
-	STA SPRITE_ADDRESS
-	; all sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
-	LDA #>SPRITES
-	STA SPRITE_ADDRESS+1
+	; all bird sprites are on the same page ($F0) so no need to change the following in the sprite-vblank kernel
+	LDA #>WINGS_SPRITE
+	STA BIRD_SPRITE_ADDRESS+1
+
+	; all details sprites are on the same page ($F0) so no need to change the following in the sprite-vblank kernel
+	LDA #<DETAIL_SPRITE
+	STA DETAIL_SPRITE_ADDRESS
+	LDA #>DETAIL_SPRITE
+	STA DETAIL_SPRITE_ADDRESS+1
 
 	; DIGIT_ADDRESS_0/1 refers to the current number being drawn
 	LDA #<DIGITS
 	STA DIGIT_ADDRESS_0
 	STA DIGIT_ADDRESS_1
-	; all sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
+	; all bird sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
 	LDA #>DIGITS
 	STA DIGIT_ADDRESS_0+1
 	STA DIGIT_ADDRESS_1+1
@@ -279,8 +290,8 @@ game_init SUBROUTINE game_init
 
 	; the following system registers remain (mostly) constant throughout game
 
-	; width of obstacles and player size
-	LDA #NORMAL_NUSIZ_VAL
+	; width of obstacles and bird size
+	LDA #BIRD_NUSIZ_VAL
 	STA NUSIZ0
 
 	; NUSIZ1 changes to accomodate tree branches 
@@ -392,6 +403,7 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	; note that we do this every frame because we trigger HMCLR every frame
 	LDA #DEATH_SPIRAL_SPEED
 	STA HMP0
+	STA HMP1
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	LDA BIRD_POS
@@ -497,9 +509,11 @@ game_vblank_foliage
 	; GAME - VBLANK - PLAY - COLLISIONS
 game_vblank_collisions
 	; check bird collision
+	BIT CXM0P
+	BMI .bird_collision
+	BVS .bird_collision
 	BIT CXM1P
 	BMI .bird_collision
-	BIT CXM0P
 	BVS .bird_collision
 
 	; check for collision of obstacles with backstop
@@ -600,8 +614,8 @@ game_vblank_collisions
 	; in the game_vblank_death subroutine
 
 	; use fly down sprite
-	LDA #<SPRITE_WINGS_UP
-	STA SPRITE_ADDRESS
+	LDA #<WINGS_UP
+	STA BIRD_SPRITE_ADDRESS
 
 	; change play state
 	LDA #PLAY_STATE_DEATH_SPIRAL
@@ -643,17 +657,17 @@ game_vblank_player_sprite
 	STX FLY_FRAME
 
 	; flip sprite in response to fire button press
-	LDX SPRITE_ADDRESS
-	CPX #<SPRITE_WINGS_DOWN
+	LDX BIRD_SPRITE_ADDRESS
+	CPX #<WINGS_DOWN
 	BEQ .flip_sprite_use_flat
 
-	LDX #<SPRITE_WINGS_DOWN
-	STX SPRITE_ADDRESS
+	LDX #<WINGS_DOWN
+	STX BIRD_SPRITE_ADDRESS
 	JMP .flip_sprite_end
 
 .flip_sprite_use_flat
-	LDX #<SPRITE_WINGS_FLAT
-	STX SPRITE_ADDRESS
+	LDX #<WINGS_FLAT
+	STX BIRD_SPRITE_ADDRESS
 .flip_sprite_end
 
 .do_flight_anim
@@ -695,8 +709,8 @@ game_vblank_player_sprite
 	BPL .end_glide
 
 	; make sure we're using the flat wing sprite when gliding
-	LDA #<SPRITE_WINGS_FLAT
-	STA SPRITE_ADDRESS
+	LDA #<WINGS_FLAT
+	STA BIRD_SPRITE_ADDRESS
 
 	INC FLY_FRAME
 	JMP .fly_end
@@ -709,8 +723,8 @@ game_vblank_player_sprite
 
 .fly_down
 	; use fly down sprite
-	LDA #<SPRITE_WINGS_UP
-	STA SPRITE_ADDRESS
+	LDA #<WINGS_UP
+	STA BIRD_SPRITE_ADDRESS
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	LDA BIRD_POS
@@ -737,8 +751,8 @@ game_vblank_player_sprite
 	STA PLAY_STATE
 
 	; use drown sprite
-	;LDA #<SPRITE_WINGS_DROWN
-	;STA SPRITE_ADDRESS
+	;LDA #<WINGS_DROWN
+	;STA BIRD_SPRITE_ADDRESS
 
 .fly_end
 	; fall through
@@ -753,7 +767,7 @@ game_vblank_end SUBROUTINE game_vblank_end
 	; note: we do this every frame because RESP0 is used and moved for 
 	; the scoring subroutine
 	POS_SCREEN_LEFT RESP0, 4
-	POS_SCREEN_LEFT RESP1, 4
+	POS_SCREEN_LEFT RESP1, 6
 
 game_vblank_end_more SUBROUTINE game_vblank_end_more
 	; setup display kernel
@@ -936,31 +950,35 @@ game_play_area SUBROUTINE game_play_area
 	; to set the sprite line
 
 .display_bird
-	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
 	LDA BIRD_DRAW							; 3
 	STA GRP0									; 3
 
+	LDA DETAIL_DRAW						; 3
+	STA GRP1									; 3
+
 	; maximum 22 cycles in HBLANK
-	;	 9 cycles used
-	; 14 cycles until end of HBLANK
+	;		15 cycles used
+	;		7 cycles until end of HBLANK
 
 .precalc_sprite
 	; if we're at scan line number BIRD_POS (ie. where the bird is) - turn on the sprite
-	CPX BIRD_POS							; 2
-	BCS .precalc_sprite_done	; 2/3
-	TYA												; 2
-	BMI .precalc_sprite_done	; 2/3
-	LDA (SPRITE_ADDRESS),Y		; 5
-	STA BIRD_DRAW							; 3 
-	DEY												; 2
+	CPX BIRD_POS										; 2
+	BCS .precalc_sprite_done				; 2/3
+	TYA															; 2
+	BMI .precalc_sprite_done				; 2/3
+	LDA (BIRD_SPRITE_ADDRESS),Y			; 5
+	STA BIRD_DRAW										; 3 
+	LDA (DETAIL_SPRITE_ADDRESS),Y		; 5
+	STA DETAIL_DRAW									; 3 
+	DEY															; 2
 .precalc_sprite_done
 
 	; precalculate branch placement in time for next .display_obstacle cycle
 .precalc_branch
-	LDA #NORMAL_NUSIZ_VAL			; 3
+	LDA #TREE_NUSIZ_VAL				; 3
 	CPX OB_1_BRANCH						; 3
 	BNE .precalc_branch_done	; 2/3
 	LDA #BRANCH_NUSIZ_VAL			; 3
@@ -969,18 +987,20 @@ game_play_area SUBROUTINE game_play_area
 
 	JMP .next_scanline				; 3
 
+	; maximum 76 cycles between WSYNC
 	; longest path
-	;   44 cycles
+	;   58 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 61
-	; 15 cycles remaining
+	; = 66
+	; 2 cycles remaining
 
 
 .display_obstacle
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
 	STA HMOVE									; 3
+
 
 	LDA OBSTACLE_1_NUSIZ			; 3
 	STA NUSIZ1								; 3
@@ -991,8 +1011,8 @@ game_play_area SUBROUTINE game_play_area
 	STA ENAM1									; 3
 
 	; maximum 22 cycles in HBLANK
-	;	 21 cycles used
-	; 1 cycles until end of HBLANK
+	;		21 cycles used
+	;		1 cycles until end of HBLANK
 
 .precalc_obstacles
 	; we don't have time in the HBLANK to do all this comparing and branching
@@ -1027,6 +1047,8 @@ game_play_area SUBROUTINE game_play_area
 	; = 71
 	; 5 cycles remaining
 
+	STA VDELP1
+
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												; 2
@@ -1043,13 +1065,27 @@ game_play_area SUBROUTINE game_play_area
 ; GAME - DISPLAY - SWAMP 
 
 swamp SUBROUTINE swamp
-	LDY NEXT_FOLIAGE
-	LDX FOLIAGE,Y
-	LDA #$00
+	; we've arrived here via the BEQ swamp call above in the game_play_area.next_scanline routine above
+	; the last loop in the game_play_area loop before the successful branching would have been the .display_bird
+	; loop. so, the available number of cycles left before the end of the scanline is:
 
-	; make sure we don't draw the bird sprite by accident
-	STA GRP0
-	STA BIRD_DRAW
+	; (note the fewer cycles used for ".next_scanline" - caused by the branching to this swamp subroutine)
+
+	; maximum 76 cycles between WSYNC
+	; longest path
+	;   58 cycles
+	; + 5 for ".next_scanline"
+	; + 3 for WSYNC
+	; = 66
+	; 10 cycles remaining
+
+	; (also note that this is the number of cycles left after the longest path, which occurs when the bird
+	; is at it's lowest point. ie. using extra cycle might not be noticable depending on the bird's position)
+
+	LDY NEXT_FOLIAGE			; 3
+	LDX FOLIAGE,Y					; 4
+
+	; 3 cycles remaining until end of scanline
 
 	STA WSYNC
 	STA HMOVE
@@ -1067,9 +1103,19 @@ swamp SUBROUTINE swamp
 	LDA #SWAMP_COLOR
 	STA COLUPF
 
+	; draw swap the same as the last line of the foliage
 	STX PF0
 	STX PF1
 	STX PF2
+
+	; turn off sprites
+	LDA #$00
+	STA GRP0
+	STA GRP1
+
+	; make sure we don't draw sprite at the top of next frame by accident
+	STA BIRD_DRAW
+	STA DETAIL_DRAW
 
 	; wait for end of the swamp ...
 	LDX #VISIBLE_LINES_SWAMP
@@ -1175,11 +1221,11 @@ game_overscan SUBROUTINE game_overscan
 
 	; reset sprite image
 	LDA #0
-	STA GRP1
 	STA GRP0
+	STA GRP1
 
 	; reset colours
-	LDA #SPRITE_COLOR
+	LDA #BIRD_COLOR
 	STA COLUP0
 	STA COLUP1
 
