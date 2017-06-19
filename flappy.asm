@@ -41,13 +41,16 @@ DEATH_DROWNING_SPEED	= $0C ; should be the same BIRD_LOW
 ; - last four bits set the player sprite size
 OBSTACLE_WIDTH				= %00100000		; quad width
 OBSTACLE_WIDTH_BRANCH	= %00110000		; octuple width
-WINGS_APPEARANCE			= %00000101   ; single instance, double width
-DETAILS_APPEARANCE		= %00000000   ; single instance, double width
-SCORE_APPEARANCE			= %00000101   ; single instance, double width
-WINGS_NUSIZ_VAL				= OBSTACLE_WIDTH | WINGS_APPEARANCE
-TREE_NUSIZ_VAL				= OBSTACLE_WIDTH | DETAILS_APPEARANCE
-BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | DETAILS_APPEARANCE
-SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_APPEARANCE
+WINGS_SIZE						= %00000101   ; single instance, double width
+HEAD_SIZE							= %00000000   ; single instance, single width
+SCORE_DIGITS_SIZE			= %00000101   ; single instance, double width
+WINGS_NUSIZ_VAL				= OBSTACLE_WIDTH | WINGS_SIZE
+TREE_NUSIZ_VAL				= OBSTACLE_WIDTH | HEAD_SIZE
+BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | HEAD_SIZE
+
+; score area of the screen doesn't have any obstacles but we'll set it anyway
+; so that we don't have to reset at the beginning of the next frame
+SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_DIGITS_SIZE
 
 ; speed/width of obstacle when it's being reset
 ; prevents extra collisions (which cause extra scoring)
@@ -1142,9 +1145,8 @@ scoring SUBROUTINE scoring
 	STA	COLUBK
 
 	LDA #SCORE_NUSIZ_VAL
-	; NUSIZ0 doesn't need to change with current values
-	;STA NUSIZ0
 	STA NUSIZ1
+	; NUSIZ0 is already a suitable size for displaying a scoring digit
 
 	MULTI_COUNT_TWO_CMP
 	BEQ .prep_hiscore
