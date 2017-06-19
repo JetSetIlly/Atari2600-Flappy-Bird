@@ -303,6 +303,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 		;			branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
 		;		- waiting for third frame
 		;			branch on BMI or BNE (BEQ or BPL does not work)
+		;			(note carry bit should be set)
 
 		LDA #%00000011						; 2
 		AND MULTI_COUNT_STATE			; 3

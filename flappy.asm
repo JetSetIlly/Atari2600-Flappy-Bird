@@ -76,6 +76,7 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 
 ; play state
 PLAY_STATE_PLAY					= $00
+PLAY_STATE_READY				= $01
 PLAY_STATE_DEATH_SPIRAL	= $FF
 PLAY_STATE_DEATH_DROWN	= $FE
 
@@ -223,6 +224,7 @@ title_screen SUBROUTINE title_screen
 .vblank
 	VBLANK_KERNEL_SETUP
 	LDA INPT4
+	STA FIRE_HELD
 	BPL .end_title_screen
 	LDX #VISIBLE_SCANLINES
 	VBLANK_KERNEL_END
@@ -312,8 +314,10 @@ game_restart SUBROUTINE game_restart
 
 	LDA #$0
 	STA SCORE
-	STA PLAY_STATE	 ; 0 is the normal PLAY_STATE
 	STA HMP0				 ; player speed
+
+	LDA #PLAY_STATE_READY
+	STA PLAY_STATE
 
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
@@ -370,18 +374,43 @@ game_vblank SUBROUTINE game_vblank
 	LDX PLAY_STATE
 	BEQ game_vblank_play
 
+	CPX #PLAY_STATE_DEATH_SPIRAL
+	BEQ game_vblank_death_spiral
+	CPX #PLAY_STATE_DEATH_DROWN
+	BEQ game_vblank_death_drown
+
+	; fall through to VBLANK - READY
+
+	
+; -------------
+; GAME - VBLANK - READY
+
+game_vblank_ready SUBROUTINE game_vblank_ready
+	LDA INPT4
+	BMI .continue_ready_state
+
+	LDX FIRE_HELD
+	BPL .continue_ready_state
+
+.end_ready_state
+	STA FIRE_HELD
+	LDA #PLAY_STATE_PLAY
+	STA PLAY_STATE
+	JMP game_vblank_end
+
+.continue_ready_state
+	STA FIRE_HELD
+	JMP game_vblank_end
+
+
+
 ; -------------
 ; GAME - VBLANK - DEATH
 
-game_vblank_death SUBROUTINE game_vblank_death
-	CPX #PLAY_STATE_DEATH_SPIRAL
-	BEQ game_vblank_death_spiral
-
-
 game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	; slow down death animation
-	MULTI_COUNT_THREE_CMP 0
-	BMI .continue_drowning
+	MULTI_COUNT_THREE_CMP 1
+	BNE .continue_drowning
 
 	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_LEN) 
 	LDX FLY_FRAME
@@ -394,7 +423,7 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	DEX
 	STX BIRD_POS
 .continue_drowning
-	JMP game_vblank_end_more
+	JMP game_vblank_skip_positioning
 
 .drowning_end
 	JMP game_restart
@@ -433,7 +462,7 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 .cont_death_anim
 	MULTI_COUNT_THREE_CMP 0
 	BPL .cont_death_anim_with_foliage
-	JMP game_vblank_end_more
+	JMP game_vblank_skip_positioning
 
 .end_death_anim
 	JMP game_restart
@@ -446,7 +475,7 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	LDY #0
 .foliage_updated
 	STY NEXT_FOLIAGE
-	JMP game_vblank_end_more
+	JMP game_vblank_skip_positioning
 
 
 ; ----------------------------------
@@ -771,7 +800,7 @@ game_vblank_end SUBROUTINE game_vblank_end
 	POS_SCREEN_LEFT RESP0, 4
 	POS_SCREEN_LEFT RESP1, 6
 
-game_vblank_end_more SUBROUTINE game_vblank_end_more
+game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; setup display kernel
 
 	; do horizontal movement
