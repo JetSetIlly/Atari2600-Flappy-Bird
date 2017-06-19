@@ -287,7 +287,8 @@ OVERSCAN_SCANLINES = $1E	; 30
 	ENDM
 
 	MAC MULTI_COUNT_TWO_CMP
-		; result - branch on BEQ and BNE
+		; result (waiting for every other frame, or differentiating between the two states, is the same)
+		;		- branch on BEQ and BNE
 		LDA #%10000000						; 2
 		AND MULTI_COUNT_STATE			; 3
 		; 5 cycles
@@ -297,7 +298,11 @@ OVERSCAN_SCANLINES = $1E	; 30
 		; {1} == 0 -> do NOT set carry bit before subtract
 		; {1} == n -> DO set carry bit before subtract
 
-		; result - branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
+		; result (depends on what you are trying to achieve)
+		;		- differentiating between three states:
+		;			branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
+		;		- waiting for third frame
+		;			branch on BMI or BNE (BEQ or BPL does not work)
 
 		LDA #%00000011						; 2
 		AND MULTI_COUNT_STATE			; 3
@@ -308,6 +313,13 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 		SBC #1										; 2
 		; 7 cycles - or 9 if SEC is used
+	ENDM
+
+	MAC MULTI_COUNT_SIX_CMP
+		; result (waiting for sixth state)
+		;		- branch on BEQ (six count); BNE (non six count)
+		; (note that you can't differentiate the six states using this multi count method)
+		LDA MULTI_COUNT_STATE			; 3
 	ENDM
 ;-----------------------------------
 

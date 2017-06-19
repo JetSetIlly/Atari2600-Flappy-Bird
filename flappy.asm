@@ -35,7 +35,7 @@ BIRD_LOW				=	$0C
 
 ; death rates
 DEATH_SPIRAL_SPEED		= $E0 ; speed at which player sprite moves foward during death spiral
-DEATH_DROWNING_SPEED	= $0C ; should be the same BIRD_LOW
+DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
 ; - last four bits set the player sprite size
@@ -381,9 +381,9 @@ game_vblank_death SUBROUTINE game_vblank_death
 game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	; slow down death animation
 	MULTI_COUNT_THREE_CMP 0
-	BPL .continue_drowning
+	BMI .continue_drowning
 
-	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_SPEED) 
+	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_LEN) 
 	LDX FLY_FRAME
 	BEQ .drowning_end
 	DEX 
@@ -745,7 +745,7 @@ game_vblank_player_sprite
 	LDA #BIRD_LOW
 	STA BIRD_POS
 
-	LDA #DEATH_DROWNING_SPEED
+	LDA #DEATH_DROWNING_LEN
 	STA FLY_FRAME
 
 	; change play state to death by drowning
