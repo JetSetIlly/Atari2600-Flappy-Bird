@@ -41,11 +41,13 @@ DEATH_DROWNING_SPEED	= $0C ; should be the same BIRD_LOW
 ; - last four bits set the player sprite size
 OBSTACLE_WIDTH				= %00100000		; quad width
 OBSTACLE_WIDTH_BRANCH	= %00110000		; octuple width
-BIRD_APPEARANCE				= %00000101   ; single instance, double width
+WINGS_APPEARANCE			= %00000101   ; single instance, double width
 DETAILS_APPEARANCE		= %00000000   ; single instance, double width
-BIRD_NUSIZ_VAL				= OBSTACLE_WIDTH | BIRD_APPEARANCE
+SCORE_APPEARANCE			= %00000101   ; single instance, double width
+WINGS_NUSIZ_VAL				= OBSTACLE_WIDTH | WINGS_APPEARANCE
 TREE_NUSIZ_VAL				= OBSTACLE_WIDTH | DETAILS_APPEARANCE
 BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | DETAILS_APPEARANCE
+SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_APPEARANCE
 
 ; speed/width of obstacle when it's being reset
 ; prevents extra collisions (which cause extra scoring)
@@ -147,10 +149,10 @@ DIGIT_ADDRESS_1				ds 2
 
 ; sprite data
 WINGS_SPRITE
-WINGS_UP				HEX	00 00 00 00 78 70 60 40 
-WINGS_FLAT			HEX	00 00 00 00 78 40 00 00
-WINGS_DOWN			HEX	00 40 60 70 78 00 00 00
-DETAIL_SPRITE		HEX 00 00 04 04 1A 06 00 00
+WINGS_UP				HEX	00 00 00 00 30 70 60 40 
+WINGS_FLAT			HEX	00 00 00 00 70 40 00 00
+WINGS_DOWN			HEX	00 40 60 70 70 00 00 00
+DETAIL_SPRITE		HEX 00 00 00 00 10 0E 0C 10
 SPRITE_LINES		=	7
 
 ; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
@@ -288,14 +290,11 @@ game_init SUBROUTINE game_init
 	LDA FOREST_MID_2_INIT
 	STA FOREST_MID_2
 
-	; the following system registers remain (mostly) constant throughout game
-
-	; width of obstacles and bird size
-	LDA #BIRD_NUSIZ_VAL
+	; width/number of wings sprite & obstacle 0
+	; doesn't change throughout game
+	LDA #WINGS_NUSIZ_VAL
 	STA NUSIZ0
 
-	; NUSIZ1 changes to accomodate tree branches 
-	STA NUSIZ1
 
 ; ----------------------------------
 ; GAME RESTART
@@ -781,8 +780,6 @@ game_vblank_end_more SUBROUTINE game_vblank_end_more
 	; reset collision flags every frame
 	STA CXCLR
 
-	; we have the time so set up foliage subroutine
-
 	; turn on trigger (ball) - turned off after foliage
 	LDA #$2
 	STA ENABL
@@ -1143,6 +1140,11 @@ scoring SUBROUTINE scoring
 	STA PF2
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
+
+	LDA #SCORE_NUSIZ_VAL
+	; NUSIZ0 doesn't need to change with current values
+	;STA NUSIZ0
+	STA NUSIZ1
 
 	MULTI_COUNT_TWO_CMP
 	BEQ .prep_hiscore
