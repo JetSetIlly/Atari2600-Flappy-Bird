@@ -74,7 +74,7 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; * two position resets
 ; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
 
-; play state
+; play state -- death states are all negative
 PLAY_STATE_PLAY					= $00
 PLAY_STATE_READY				= $01
 PLAY_STATE_DEATH_SPIRAL	= $FF
@@ -372,14 +372,16 @@ game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
 	LDX PLAY_STATE
-	BEQ game_vblank_play
+	BEQ .far_jmp_game_vblank_play
 
 	CPX #PLAY_STATE_DEATH_SPIRAL
 	BEQ game_vblank_death_spiral
 	CPX #PLAY_STATE_DEATH_DROWN
 	BEQ game_vblank_death_drown
+	JMP game_vblank_ready
 
-	; fall through to VBLANK - READY
+.far_jmp_game_vblank_play
+	JMP game_vblank_play
 
 	
 ; -------------
@@ -403,13 +405,12 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	JMP game_vblank_end
 
 
-
 ; -------------
 ; GAME - VBLANK - DEATH
 
 game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	; slow down death animation
-	MULTI_COUNT_THREE_CMP 1
+	MULTI_COUNT_THREE_CMP 0
 	BNE .continue_drowning
 
 	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_LEN) 
@@ -422,6 +423,16 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	LDX BIRD_POS
 	DEX
 	STX BIRD_POS
+
+	; update foliage at the same rate
+	LDY NEXT_FOLIAGE
+	INY
+	CPY #FOLIAGE_CHAOS_CYCLE
+	BCC .foliage_updated
+	LDY #0
+.foliage_updated
+	STY NEXT_FOLIAGE
+
 .continue_drowning
 	JMP game_vblank_skip_positioning
 
@@ -1160,7 +1171,7 @@ swamp SUBROUTINE swamp
 ; GAME - DISPLAY - SCORING 
 scoring SUBROUTINE scoring
 	LDA PLAY_STATE
-	BEQ .display_score
+	BPL .display_score			; branch if PLAY_STATE is not a death state (all deaths are negative play states)
 	JMP game_overscan
 
 .display_score
