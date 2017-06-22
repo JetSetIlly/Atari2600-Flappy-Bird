@@ -35,6 +35,7 @@ BIRD_LOW				=	$0C
 
 ; death rates
 DEATH_SPIRAL_SPEED		= $D0 ; speed at which player sprite moves foward during death spiral
+DEATH_DROWNING_SPEEED	= $FF
 DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
@@ -413,6 +414,12 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	MULTI_COUNT_THREE_CMP 0
 	BNE .continue_drowning
 
+	; set death speed
+	; note that we do this every frame because we trigger HMCLR every frame
+	LDA #DEATH_DROWNING_SPEEED
+	STA HMP0
+	STA HMP1
+
 	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_LEN) 
 	LDX FLY_FRAME
 	BEQ .drowning_end
@@ -484,8 +491,11 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	JMP game_vblank_skip_positioning
 
 .end_death_anim
-	JMP game_restart
-
+	LDA #BIRD_LOW
+	STA BIRD_POS
+	LDA #PLAY_STATE_DEATH_DROWN
+	STA PLAY_STATE
+	JMP game_vblank_skip_positioning
 
 
 ; ----------------------------------
