@@ -34,7 +34,7 @@ BIRD_HIGH				=	VISIBLE_LINE_PLAYAREA
 BIRD_LOW				=	$0C
 
 ; death rates
-DEATH_SPIRAL_SPEED		= $E0 ; speed at which player sprite moves foward during death spiral
+DEATH_SPIRAL_SPEED		= $D0 ; speed at which player sprite moves foward during death spiral
 DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
@@ -201,7 +201,7 @@ DIGIT_9	HEX 04 04 3C 24 3C
 DIGIT_LINES	= 4
 DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
-DEATH_SPIRAL .byte 1, 2, 3, 4, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
+DEATH_SPIRAL .byte 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
 DEATH_SPIRAL_LEN = 13
 
 
@@ -441,6 +441,9 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 
 
 game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
+	MULTI_COUNT_TWO_CMP
+	BNE .foliage
+
 	; set death spriral rebound speed
 	; note that we do this every frame because we trigger HMCLR every frame
 	LDA #DEATH_SPIRAL_SPEED
@@ -455,30 +458,22 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 
 	; we don't want BIRD_POS to fall below BIRD_LOW
 	CMP #BIRD_LOW
-	BCC	.death_fly_lowest
+	BCC	.end_death_anim
 
 	STA BIRD_POS
 
 	CPX #DEATH_SPIRAL_LEN
-	BCS .cont_death_anim_save_activity
+	BCS .store_fly_frame
 	INX
-	JMP .cont_death_anim_save_activity
-
-.death_fly_lowest
-	JMP .end_death_anim
-
-.cont_death_anim_save_activity
+.store_fly_frame
 	STX FLY_FRAME
 
-.cont_death_anim
+.foliage
 	MULTI_COUNT_THREE_CMP 0
-	BPL .cont_death_anim_with_foliage
+	BPL .update_foliage
 	JMP game_vblank_skip_positioning
 
-.end_death_anim
-	JMP game_restart
-
-.cont_death_anim_with_foliage
+.update_foliage
 	LDY NEXT_FOLIAGE
 	INY
 	CPY #FOLIAGE_CHAOS_CYCLE
@@ -487,6 +482,10 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 .foliage_updated
 	STY NEXT_FOLIAGE
 	JMP game_vblank_skip_positioning
+
+.end_death_anim
+	JMP game_restart
+
 
 
 ; ----------------------------------
