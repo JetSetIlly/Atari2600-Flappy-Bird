@@ -207,6 +207,56 @@ DEATH_SPIRAL_LEN = 13
 
 
 ; ----------------------------------
+; MACROS
+	MAC DROWNING_PLAY_STATE
+	; change play state to death by drowning
+	LDA #BIRD_LOW
+	STA BIRD_POS
+	LDA #DEATH_DROWNING_LEN
+	STA FLY_FRAME
+	LDA #PLAY_STATE_DEATH_DROWN
+	STA PLAY_STATE
+	ENDM
+
+	MAC FOLIAGE_ANIMATION
+	LDY NEXT_FOLIAGE
+	INY
+	CPY #FOLIAGE_CHAOS_CYCLE
+	BCC .foliage_updated
+	LDY #0
+
+	IF {1} == 1
+		; rotate forest whenever foliage chaos cycle resets
+.rotate_forest
+		CLC
+		ROR FOREST_MID_0
+		LDA FOREST_MID_0
+		AND #%00001000
+		BNE .jump_tree
+		JMP .cont_forest
+.jump_tree
+		LDA #%11110000
+		AND FOREST_MID_0
+		STA FOREST_MID_0
+		SEC
+.cont_forest
+		ROR FOREST_MID_2
+		ROL FOREST_MID_1
+		BCS .carry_tree
+		JMP .forest_done
+.carry_tree
+		LDA #%10000000
+		ORA FOREST_MID_0
+		STA FOREST_MID_0
+.forest_done
+	ENDIF
+
+.foliage_updated
+	STY NEXT_FOLIAGE
+	ENDM
+
+
+; ----------------------------------
 ; SETUP
 
 setup SUBROUTINE setup
@@ -407,7 +457,7 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 
 
 ; -------------
-; GAME - VBLANK - DEATH
+; GAME - VBLANK - DEATH - DROWN
 
 game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	; slow down death animation
@@ -431,14 +481,7 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	DEX
 	STX BIRD_POS
 
-	; update foliage at the same rate
-	LDY NEXT_FOLIAGE
-	INY
-	CPY #FOLIAGE_CHAOS_CYCLE
-	BCC .foliage_updated
-	LDY #0
-.foliage_updated
-	STY NEXT_FOLIAGE
+	FOLIAGE_ANIMATION 0
 
 .continue_drowning
 	JMP game_vblank_skip_positioning
@@ -446,6 +489,9 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 .drowning_end
 	JMP game_restart
 
+
+; -------------
+; GAME - VBLANK - DEATH - SPIRAL
 
 game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	MULTI_COUNT_TWO_CMP
@@ -465,7 +511,7 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 
 	; we don't want BIRD_POS to fall below BIRD_LOW
 	CMP #BIRD_LOW
-	BCC	.end_death_anim
+	BCC	.end_death_spiral
 
 	STA BIRD_POS
 
@@ -474,6 +520,7 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	INX
 .store_fly_frame
 	STX FLY_FRAME
+	JMP game_vblank_skip_positioning
 
 .foliage
 	MULTI_COUNT_THREE_CMP 0
@@ -481,20 +528,11 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	JMP game_vblank_skip_positioning
 
 .update_foliage
-	LDY NEXT_FOLIAGE
-	INY
-	CPY #FOLIAGE_CHAOS_CYCLE
-	BCC .foliage_updated
-	LDY #0
-.foliage_updated
-	STY NEXT_FOLIAGE
+	FOLIAGE_ANIMATION 0
 	JMP game_vblank_skip_positioning
 
-.end_death_anim
-	LDA #BIRD_LOW
-	STA BIRD_POS
-	LDA #PLAY_STATE_DEATH_DROWN
-	STA PLAY_STATE
+.end_death_spiral
+	DROWNING_PLAY_STATE
 	JMP game_vblank_skip_positioning
 
 
@@ -519,41 +557,7 @@ game_vblank_play SUBROUTINE game_vblank_play
 	; -------------
 	; GAME - VBLANK - PLAY - FOLIAGE
 game_vblank_foliage
-	LDY NEXT_FOLIAGE
-	INY
-	CPY #FOLIAGE_CHAOS_CYCLE
-	BCC .foliage_updated
-
-	; rotate forest whenever foliage chaos cycle resets
-.rotate_forest
-	CLC
-	ROR FOREST_MID_0
-	LDA FOREST_MID_0
-	AND #%00001000
-	BNE .jump_tree
-	JMP .cont_forest
-.jump_tree
-	LDA #%11110000
-	AND FOREST_MID_0
-	STA FOREST_MID_0
-	SEC
-.cont_forest
-	ROR FOREST_MID_2
-	ROL FOREST_MID_1
-	BCS .carry_tree
-	JMP .forest_done
-.carry_tree
-	LDA #%10000000
-	ORA FOREST_MID_0
-	STA FOREST_MID_0
-.forest_done
-
-	; reset chaos cycle
-	LDY #0
-
-.foliage_updated
-	STY NEXT_FOLIAGE
-
+	FOLIAGE_ANIMATION 1
 	JMP game_vblank_end
 
 	; -------------
@@ -791,19 +795,7 @@ game_vblank_player_sprite
 	JMP .fly_end
 
 .fly_lowest
-	LDA #BIRD_LOW
-	STA BIRD_POS
-
-	LDA #DEATH_DROWNING_LEN
-	STA FLY_FRAME
-
-	; change play state to death by drowning
-	LDA #PLAY_STATE_DEATH_DROWN
-	STA PLAY_STATE
-
-	; use drown sprite
-	;LDA #<WINGS_DROWN
-	;STA BIRD_SPRITE_ADDRESS
+	DROWNING_PLAY_STATE
 
 .fly_end
 	; fall through
