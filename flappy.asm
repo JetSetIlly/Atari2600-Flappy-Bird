@@ -205,9 +205,9 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 DEATH_SPIRAL .byte 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
 DEATH_SPIRAL_LEN = 13
 
-
 ; ----------------------------------
 ; MACROS
+
 	MAC DROWNING_PLAY_STATE
 	; change play state to death by drowning
 	LDA #BIRD_LOW
@@ -219,14 +219,19 @@ DEATH_SPIRAL_LEN = 13
 	ENDM
 
 	MAC FOLIAGE_ANIMATION
+	; {1} == 0 -> do NOT the forest background
+	; {1} == n -> do animate the forest background (at the speed of FOLIAGE CHAOS CYCLE)
+
+	; cycle playfield data used to illustrate foliage, and by
+	; association, the playfield used for the water/swamp
 	LDY NEXT_FOLIAGE
 	INY
 	CPY #FOLIAGE_CHAOS_CYCLE
 	BCC .foliage_updated
 	LDY #0
 
+	; rotate forest whenever foliage chaos cycle resets
 	IF {1} == 1
-		; rotate forest whenever foliage chaos cycle resets
 .rotate_forest
 		CLC
 		ROR FOREST_MID_0
@@ -350,6 +355,10 @@ game_init SUBROUTINE game_init
 	; doesn't change throughout game
 	LDA #WINGS_NUSIZ_VAL
 	STA NUSIZ0
+
+;>>>
+; folding test
+;<<<
 
 
 ; ----------------------------------
@@ -683,7 +692,7 @@ game_vblank_collisions
 	JMP game_vblank_end
 	
 	; -------------
-	; GAME - VBLANK - PLAY - USER INPUT
+	; GAME - VBLANK - PLAY - SPRITE
 
 game_vblank_player_sprite
 	; check fire button
@@ -781,12 +790,18 @@ game_vblank_player_sprite
 	LDA #<WINGS_UP
 	STA BIRD_SPRITE_ADDRESS
 
+	; we'll use FLY_FRAME to alter BIRD_POS but first limit it to -15
+	; note that the stored FLY_FRAME isn't affected
+	LDA FLY_FRAME
+	CMP #$F1
+	BCS .ground_collision
+	LDA #$F2
+	
+.ground_collision
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
-	LDA BIRD_POS
 	CLC
-	ADC FLY_FRAME
+	ADC BIRD_POS
 
-	; we don't want BIRD_POS to fall below BIRD_LOW
 	CMP #BIRD_LOW
 	BCC	.fly_lowest
 
