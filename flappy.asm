@@ -4,8 +4,8 @@
 	include macro.h
 	include vcs_extra.h
 
-
-; program tunables 
+; ----------------------------------
+; DATA - TUNABLES 
 ; TODO: alter these according to console difficulty setting
 
 OBSTACLE_SPEED		= $10
@@ -24,7 +24,9 @@ SCORING_BACKGROUND			= $00
 SCORE_COLOR							= $0E
 HISCORE_COLOR						= $F6
 
-; program constants
+
+; ----------------------------------
+; DATA - CONSTANTS
 
 ; screen boundaries for bird sprite
 BIRD_HIGH				=	VISIBLE_LINE_PLAYAREA
@@ -74,7 +76,8 @@ PLAY_STATE_READY				= $01
 PLAY_STATE_COLLISION_PATTERN	= $FF
 PLAY_STATE_DEATH_DROWN	= $FE
 
-; data - variables
+; ----------------------------------
+; DATA - RAM
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 MULTI_COUNT_STATE				ds 1	; counts rounds of twos and threes
@@ -102,7 +105,7 @@ DETAIL_SPRITE_ADDRESS		ds 2
 ; if PLAY_STATE == PLAY_STATE_DEATH_DROWN
 ;	then
 ;		PATTERN_INDEX counts number of frames to game reset
-PATTERN_INDEX						ds 1
+PATTERN_INDEX				ds 1
 
 ; value for next foliage (playfield) - points to FOLIAGE
 NEXT_FOLIAGE				ds 1
@@ -145,6 +148,8 @@ DIGIT_ADDRESS_0				ds 2
 DIGIT_ADDRESS_1				ds 2
 
 
+; ----------------------------------
+; DATA - ROM
 	SEG
 	ORG $F000		; start of cart ROM
 
@@ -210,8 +215,9 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
 
 ; TODO: multiple collision patterns
-COLLISION_PATTERN .byte 13, 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
+COLLISION_PATTERN .byte 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
 COLLISION_PATTERN_LEN = 13
+
 
 ; ----------------------------------
 ; MACROS - FLIGHT PATTERN
@@ -479,7 +485,7 @@ game_vblank SUBROUTINE game_vblank
 	JMP game_vblank_play
 
 	
-; -------------
+; ----------------------------------
 ; GAME - VBLANK - READY
 
 game_vblank_ready SUBROUTINE game_vblank_ready
@@ -500,7 +506,7 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	JMP game_vblank_end
 
 
-; -------------
+; ----------------------------------
 ; GAME - VBLANK - DEATH - DROWN
 
 game_vblank_death_drown SUBROUTINE game_vblank_death_drown
@@ -534,7 +540,7 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	JMP game_restart
 
 
-; -------------
+; ----------------------------------
 ; GAME - VBLANK - DEATH - COLLISION
 
 game_vblank_death_collision SUBROUTINE game_vblank_death_collision
@@ -740,8 +746,7 @@ game_vblank_player_sprite
 	; we've deferred limiting the pointer to the overscan kernel
 	; NOTE: this is okay because we only reference NEXT_OBSTACLE
 	; in the VBLANK - here and in "VBLANK - COLLISIONS". the overscan
-	; kernel will have run at least once before we next reference the
-	; variable
+	; kernel will have run at least once before we next reference it
 	INC NEXT_OBSTACLE
 
 	; ditto for NEXT_BRANCH
@@ -817,7 +822,7 @@ game_vblank_player_sprite
 	; fall through
 
 
-; -------------
+; ----------------------------------
 ; GAME - VBLANK - END
 
 game_vblank_end SUBROUTINE game_vblank_end
