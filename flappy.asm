@@ -10,9 +10,6 @@
 
 OBSTACLE_SPEED		= $10
 OBSTACLE_WINDOW		= $1F
-CLIMB_RATE				=	$4	 ; number of scanlines bird sprite should fly up per frame
-CLIMB_FRAMES			=	$5
-GLIDE_FRAMES			=	CLIMB_FRAMES + $2
 
 ; tunables - but not related to difficulty
 
@@ -34,7 +31,7 @@ BIRD_HIGH				=	VISIBLE_LINE_PLAYAREA
 BIRD_LOW				=	$0C
 
 ; death rates
-DEATH_SPIRAL_SPEED		= $D0 ; speed at which player sprite moves foward during death spiral
+DEATH_COLLISION_SPEED	= $D0 ; speed at which player sprite moves foward during death collision
 DEATH_DROWNING_SPEEED	= $FF
 DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
@@ -57,12 +54,8 @@ SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_DIGITS_SIZE
 ; prevents extra collisions (which cause extra scoring)
 OBSTACLE_EXIT_SPEED		= $20
 
-; number of frames (since fire button was last pressed) for the bird to fly up, and then glide
-FLY_CLIMB_START_FRAME	=	$0
-FLY_DIVE_START_FRAME	=	$FF
-
+; start position at start of game 
 BIRD_POS_INIT					=	BIRD_HIGH / 4 * 3
-FLY_FRAME_INIT				=	FLY_DIVE_START_FRAME
 
 ; visible display area
 VISIBLE_LINES_FOLIAGE			= $20
@@ -78,7 +71,7 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; play state -- death states are all negative
 PLAY_STATE_PLAY					= $00
 PLAY_STATE_READY				= $01
-PLAY_STATE_DEATH_SPIRAL	= $FF
+PLAY_STATE_COLLISION_PATTERN	= $FF
 PLAY_STATE_DEATH_DROWN	= $FE
 
 ; data - variables
@@ -89,24 +82,27 @@ PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 FIRE_HELD								ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS								ds 1	; between BIRD_HIGH and BIRD_LOW
 
+; selected flight pattern - see FLIGHT_PATTERN macros
+FLIGHT_PATTERN					ds 2
+
 ; which bird/detail sprite to use in the display kernel
 BIRD_SPRITE_ADDRESS			ds 2
-DETAIL_SPRITE_ADDRESS			ds 2
+DETAIL_SPRITE_ADDRESS		ds 2
 
-; FLY_FRAME's meaning changes depending on PLAY_STATE
+; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
 ; if PLAY_STATE == PLAY_STATE_PLAY
 ;	then
-;		<0 = dive; <= CLIMB_FRAMES = climb; <= GLIDE_FRAMES = glide
+;		PATTERN_INDEX indexes FLIGHT_PATTERN
 ;
-; if PLAY_STATE == PLAY_STATE_DEATH_SPIRAL
+; if PLAY_STATE == PLAY_STATE_COLLISION_PATTERN
 ;	then
-;		FLY_FRAME indexes DEATH_SPIRAL
+;		PATTERN_INDEX indexes COLLISION_PATTERN
 ;
 ; if PLAY_STATE == PLAY_STATE_DEATH_DROWN
 ;	then
-;		FLY_FRAME counts number of frames to game reset
-FLY_FRAME						ds 1
+;		PATTERN_INDEX counts number of frames to game reset
+PATTERN_INDEX						ds 1
 
 ; value for next foliage (playfield) - points to FOLIAGE
 NEXT_FOLIAGE				ds 1
@@ -202,18 +198,57 @@ DIGIT_9	HEX 04 04 3C 24 3C
 DIGIT_LINES	= 4
 DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
-DEATH_SPIRAL .byte 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
-DEATH_SPIRAL_LEN = 13
+; first byte is the length of the flight pattern (not including last byte). also note that we're
+;		indexing from 1 because index 0 is this length byte
+;
+; last byte is the index to initialse the pattern index to (usually start of the glide period)
+;
+;	intervening bytes are the flight pattern proper
+;		note: negative pattern values less than -BIRD_LOW (ie. -12) may result in undefined behaviour
+;
+; see FLIGHT_PATTERN macros
+EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
+
+; TODO: multiple collision patterns
+COLLISION_PATTERN .byte 13, 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
+COLLISION_PATTERN_LEN = 13
 
 ; ----------------------------------
-; MACROS
+; MACROS - FLIGHT PATTERN
+
+	MAC INITIALISE_FLIGHT_PATTERN_INDEX
+	; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
+	; see FLIGHT_PATTERN definitions for memory layout explanation
+	LDY #$0
+	LDA (FLIGHT_PATTERN),Y
+	TAY
+	INY
+	LDA (FLIGHT_PATTERN),Y
+	STA PATTERN_INDEX
+	ENDM
+
+	MAC UPDATE_FLIGHT_PATTERN_INDEX
+	STA BIRD_POS
+	INY
+	TYA
+	LDX #$0
+	CMP (FLIGHT_PATTERN),X
+	BCC .store_index
+	LDA (FLIGHT_PATTERN),X
+.store_index
+	STA PATTERN_INDEX
+	ENDM
+
+
+; ----------------------------------
+; MACROS - GENERAL
 
 	MAC DROWNING_PLAY_STATE
 	; change play state to death by drowning
 	LDA #BIRD_LOW
 	STA BIRD_POS
 	LDA #DEATH_DROWNING_LEN
-	STA FLY_FRAME
+	STA PATTERN_INDEX
 	LDA #PLAY_STATE_DEATH_DROWN
 	STA PLAY_STATE
 	ENDM
@@ -356,10 +391,6 @@ game_init SUBROUTINE game_init
 	LDA #WINGS_NUSIZ_VAL
 	STA NUSIZ0
 
-;>>>
-; folding test
-;<<<
-
 
 ; ----------------------------------
 ; GAME RESTART
@@ -372,17 +403,21 @@ game_restart SUBROUTINE game_restart
 
 	MULTI_COUNT_SETUP
 
+	; TODO: use flight pattern depending on switch
+	LDA #<EASY_FLIGHT_PATTERN
+	STA FLIGHT_PATTERN
+	LDA #>EASY_FLIGHT_PATTERN
+	STA FLIGHT_PATTERN+1
+
+	INITIALISE_FLIGHT_PATTERN_INDEX
+
 	LDA #$0
 	STA SCORE
 	STA HMP0				 ; player speed
-
 	LDA #PLAY_STATE_READY
 	STA PLAY_STATE
-
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
-	LDA #FLY_FRAME_INIT
-	STA FLY_FRAME
 
 	; speed of flight
 	LDA #OBSTACLE_SPEED
@@ -434,8 +469,8 @@ game_vblank SUBROUTINE game_vblank
 	LDX PLAY_STATE
 	BEQ .far_jmp_game_vblank_play
 
-	CPX #PLAY_STATE_DEATH_SPIRAL
-	BEQ game_vblank_death_spiral
+	CPX #PLAY_STATE_COLLISION_PATTERN
+	BEQ game_vblank_death_collision
 	CPX #PLAY_STATE_DEATH_DROWN
 	BEQ game_vblank_death_drown
 	JMP game_vblank_ready
@@ -479,11 +514,11 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	STA HMP0
 	STA HMP1
 
-	; end drowning after FLY_FRAME (initialised to DEATH_DROWNING_LEN) 
-	LDX FLY_FRAME
+	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
+	LDX PATTERN_INDEX
 	BEQ .drowning_end
 	DEX 
-	STX FLY_FRAME
+	STX PATTERN_INDEX
 
 	; decrease bird sprite position
 	LDX BIRD_POS
@@ -500,35 +535,35 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 
 
 ; -------------
-; GAME - VBLANK - DEATH - SPIRAL
+; GAME - VBLANK - DEATH - COLLISION
 
-game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
+game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	MULTI_COUNT_TWO_CMP
 	BNE .foliage
 
 	; set death spriral rebound speed
 	; note that we do this every frame because we trigger HMCLR every frame
-	LDA #DEATH_SPIRAL_SPEED
+	LDA #DEATH_COLLISION_SPEED
 	STA HMP0
 	STA HMP1
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	LDA BIRD_POS
-	LDX FLY_FRAME
+	LDX PATTERN_INDEX
 	CLC
-	ADC DEATH_SPIRAL,X
+	ADC COLLISION_PATTERN,X
 
 	; we don't want BIRD_POS to fall below BIRD_LOW
 	CMP #BIRD_LOW
-	BCC	.end_death_spiral
+	BCC	.end_death_collision
 
 	STA BIRD_POS
 
-	CPX #DEATH_SPIRAL_LEN
+	CPX #COLLISION_PATTERN_LEN
 	BCS .store_fly_frame
 	INX
 .store_fly_frame
-	STX FLY_FRAME
+	STX PATTERN_INDEX
 	JMP game_vblank_skip_positioning
 
 .foliage
@@ -540,7 +575,7 @@ game_vblank_death_spiral SUBROUTINE game_vblank_death_spiral
 	FOLIAGE_ANIMATION 0
 	JMP game_vblank_skip_positioning
 
-.end_death_spiral
+.end_death_collision
 	DROWNING_PLAY_STATE
 	JMP game_vblank_skip_positioning
 
@@ -682,12 +717,12 @@ game_vblank_collisions
 	STA BIRD_SPRITE_ADDRESS
 
 	; change play state
-	LDA #PLAY_STATE_DEATH_SPIRAL
+	LDA #PLAY_STATE_COLLISION_PATTERN
 	STA PLAY_STATE
 
 	; begin fly down anim
 	LDA #0
-	STA FLY_FRAME
+	STA PATTERN_INDEX
 
 	JMP game_vblank_end
 	
@@ -697,7 +732,7 @@ game_vblank_collisions
 game_vblank_player_sprite
 	; check fire button
 	LDA INPT4
-	BMI .do_flight_anim
+	BMI .process_flight_pattern
 
 	; fire button is being pressed
 
@@ -714,11 +749,11 @@ game_vblank_player_sprite
 
 	; do nothing if fire is being held from last frame
 	LDX FIRE_HELD
-	BPL .do_flight_anim
+	BPL .process_flight_pattern
 
 	; new fire button press - start new fly animation
-	LDX #FLY_CLIMB_START_FRAME
-	STX FLY_FRAME
+	LDX #1
+	STX PATTERN_INDEX
 
 	; flip sprite in response to fire button press
 	LDX BIRD_SPRITE_ADDRESS
@@ -734,83 +769,49 @@ game_vblank_player_sprite
 	STX BIRD_SPRITE_ADDRESS
 .flip_sprite_end
 
-.do_flight_anim
+.process_flight_pattern
 	; save fire button state for next frame
 	; (accumulator should still reflect INPT4)
 	STA FIRE_HELD
 
-	; fly down animation
-	LDA FLY_FRAME
-	BMI .fly_down
-
-	; have we been flying up for more than CLIMB_FRAMES frames ...
-	LDA FLY_FRAME
-	CMP #CLIMB_FRAMES
-	BPL .glide_test
-
-	; else, fly up
-	INC FLY_FRAME
-	LDA BIRD_POS
-	CLC
-	ADC #CLIMB_RATE
-
-	; check to see if we've reached top of flying area (ie. top of screen)
-	CMP #BIRD_HIGH
-	BCS .fly_highest
-
-	; done with flying up
-	STA BIRD_POS
-	JMP .fly_end
-
-.fly_highest
-	LDA #BIRD_HIGH
-	STA BIRD_POS
-	JMP .fly_end
-
-.glide_test
-	; have we been flying/gliding for more than GLIDE_FRAMES frames ...
-	CMP #GLIDE_FRAMES
-	BPL .end_glide
-
-	; make sure we're using the flat wing sprite when gliding
-	LDA #<WINGS_FLAT
-	STA BIRD_SPRITE_ADDRESS
-
-	INC FLY_FRAME
-	JMP .fly_end
-
-.end_glide
-	; we have been gliding for the maximum number of frames
-	; begin fly down animation
-	LDA #FLY_DIVE_START_FRAME
-	STA FLY_FRAME
-
-.fly_down
-	; use fly down sprite
-	LDA #<WINGS_UP
-	STA BIRD_SPRITE_ADDRESS
-
-	; we'll use FLY_FRAME to alter BIRD_POS but first limit it to -15
-	; note that the stored FLY_FRAME isn't affected
-	LDA FLY_FRAME
-	CMP #$F1
-	BCS .ground_collision
-	LDA #$F2
-	
-.ground_collision
-	; alter position (FLY FRAME is a 2's complement negative so we can add)
+	; apply FLIGHT_PATTERN to BIRD_POS
+	LDY PATTERN_INDEX
+	LDA (FLIGHT_PATTERN),Y
 	CLC
 	ADC BIRD_POS
 
-	CMP #BIRD_LOW
-	BCC	.fly_lowest
+	; compare new BIRD_POS with old BIRD_POS and change sprite accordingly
+	CMP BIRD_POS
+	BEQ .use_glide_sprite
+	BCC .use_wings_up_sprite
+	JMP .sprite_set
+.use_wings_up_sprite
+	LDX #<WINGS_UP
+	STX BIRD_SPRITE_ADDRESS
+	JMP .sprite_set
+.use_glide_sprite
+	LDX #<WINGS_FLAT
+	STX BIRD_SPRITE_ADDRESS
+.sprite_set
 
-	STA BIRD_POS
-	DEC FLY_FRAME
+	; check for ground collision
+	CMP #BIRD_LOW
+	BCC	.begin_drowning
+
+	; check to see if we've reached top of flying area (ie. top of screen)
+	CMP #BIRD_HIGH
+	BCS .limit_height
+	JMP .update_flight_pattern_index
+
+.begin_drowning
+	DROWNING_PLAY_STATE
 	JMP .fly_end
 
-.fly_lowest
-	DROWNING_PLAY_STATE
+.limit_height
+	LDA #BIRD_HIGH
+
+.update_flight_pattern_index
+	UPDATE_FLIGHT_PATTERN_INDEX
 
 .fly_end
 	; fall through
