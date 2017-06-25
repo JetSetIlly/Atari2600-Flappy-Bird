@@ -5,7 +5,7 @@
 	include vcs_extra.h
 
 ; ----------------------------------
-; DATA - TUNABLES 
+; DATA - TUNABLES
 ; TODO: alter these according to console difficulty setting
 
 OBSTACLE_SPEED		= $10
@@ -117,10 +117,6 @@ OB_1_START					ds 1
 OB_1_END						ds 1
 OB_1_BRANCH					ds 1
 
-; current speed of obstacle
-CURRENT_OB_0_SPEED		ds 1
-CURRENT_OB_1_SPEED		ds 1
-
 ; start value for next obstacle - points to OBSTACLES
 NEXT_OBSTACLE					ds 1
 NEXT_BRANCH						ds 1
@@ -131,8 +127,8 @@ OBSTACLE_1_DRAW				ds 1
 OBSTACLE_1_NUSIZ			ds 1
 
 ; pre-calculated GRP0
-BIRD_DRAW							ds 1
-DETAIL_DRAW						ds 1
+WINGS_DRAW							ds 1
+HEAD_DRAW						ds 1
 
 ; background trees
 FOREST_MID_0					ds 1
@@ -427,11 +423,8 @@ game_restart SUBROUTINE game_restart
 
 	; speed of flight
 	LDA #OBSTACLE_SPEED
-	STA CURRENT_OB_0_SPEED
-	STA CURRENT_OB_1_SPEED
 	STA HMM0
 	STA HMM1
-
 
 	; POSITION ELEMENTS
 	
@@ -454,9 +447,6 @@ game_restart SUBROUTINE game_restart
 
 	; place obstacle 0 (missile 1) at screen middle
 	POS_SCREEN_MID RESM0, 0
-
-	; signify end of fine tuning (must happen at least 24 machine cycles after ACTIVATE_FINE_TUNE)
-	FINE_POS_END
 
 
 ; ----------------------------------
@@ -590,10 +580,13 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 ; GAME - VBLANK - PLAY
 
 game_vblank_play SUBROUTINE game_vblank_play
-	; reset speed of flight
-	LDA CURRENT_OB_0_SPEED
+	; reset obstacle speed - do this every frame because we reset all move
+	; registers with HMCLR at the end of every vblank (after an earlier HMOVE)
+	; note that any obstacles that had OBSTACLE_EXIT_SPEED at the end of the
+	; last vblank do not need to sustain that speed for more than that one frame
+	; the "Activision border" helps us disguise the obstacle transition
+	LDA #OBSTACLE_SPEED
 	STA HMM0
-	LDA CURRENT_OB_1_SPEED
 	STA HMM1
 
 	MULTI_COUNT_THREE_CMP 0
@@ -627,14 +620,6 @@ game_vblank_collisions
 	BIT CXM1FB
 	BVS .reset_obstacle_1
 
-	; a frame has occurred without obstacle collision
-	; reset speed and width of obstacles
-	LDA #OBSTACLE_SPEED
-	STA CURRENT_OB_0_SPEED
-	STA CURRENT_OB_1_SPEED
-	STA HMM0
-	STA HMM1
-
 	JMP game_vblank_end
 
 .reset_obstacle_0
@@ -647,11 +632,10 @@ game_vblank_collisions
 	ADC #OBSTACLE_WINDOW
 	STA OB_0_END
 
-	; NOTE: no branch for obstacle 0
+	; NOTE: no branch ornamentation for obstacle 0
 
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
-	STA CURRENT_OB_0_SPEED
 	STA HMM0
 
 	; reset screen position
@@ -680,7 +664,6 @@ game_vblank_collisions
 
 	; increase speed / decrease size of obstacle temporarily
 	LDA #OBSTACLE_EXIT_SPEED
-	STA CURRENT_OB_1_SPEED
 	STA HMM1
 
 	; reset screen position
@@ -951,10 +934,10 @@ foliage SUBROUTINE foliage
 ; GAME - DISPLAY - PLAY AREA
 
 game_play_area SUBROUTINE game_play_area
-	; set up play area
 	LDA #$0
 
-	; turn off trigger (ball) - otherwise, it'll be visible because we won't be doing any HMOVEs 
+	; turn off trigger (ball) - we won't be doing any hmoves in the score area so it'll be
+	; visible. we turn it off now however because it is not needed
 	STA ENABL
 
 	; playfield priority - background trees behind obstacles
@@ -1015,10 +998,10 @@ game_play_area SUBROUTINE game_play_area
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
-	LDA BIRD_DRAW							; 3
+	LDA WINGS_DRAW							; 3
 	STA GRP0									; 3
 
-	LDA DETAIL_DRAW						; 3
+	LDA HEAD_DRAW						; 3
 	STA GRP1									; 3
 
 	; maximum 22 cycles in HBLANK
@@ -1032,9 +1015,9 @@ game_play_area SUBROUTINE game_play_area
 	TYA															; 2
 	BMI .precalc_sprite_done				; 2/3
 	LDA (BIRD_SPRITE_ADDRESS),Y			; 5
-	STA BIRD_DRAW										; 3 
+	STA WINGS_DRAW										; 3 
 	LDA (DETAIL_SPRITE_ADDRESS),Y		; 5
-	STA DETAIL_DRAW									; 3 
+	STA HEAD_DRAW									; 3 
 	DEY															; 2
 .precalc_sprite_done
 
@@ -1124,7 +1107,7 @@ game_play_area SUBROUTINE game_play_area
 
 
 ; ----------------------------------
-; GAME - DISPLAY - SWAMP 
+; GAME - DISPLAY - SWAMP
 
 swamp SUBROUTINE swamp
 	; we've arrived here via the BEQ swamp call above in the game_play_area.next_scanline routine above
@@ -1176,8 +1159,8 @@ swamp SUBROUTINE swamp
 	STA GRP1
 
 	; make sure we don't draw sprite at the top of next frame by accident
-	STA BIRD_DRAW
-	STA DETAIL_DRAW
+	STA WINGS_DRAW
+	STA HEAD_DRAW
 
 	; wait for end of the swamp ...
 	LDX #VISIBLE_LINES_SWAMP
@@ -1190,10 +1173,10 @@ swamp SUBROUTINE swamp
 
 
 ; ----------------------------------
-; GAME - DISPLAY - SCORING 
+; GAME - DISPLAY - SCORING
 scoring SUBROUTINE scoring
 	LDA PLAY_STATE
-	BPL .display_score			; branch if PLAY_STATE is not a death state (all deaths are negative play states)
+	BPL .display_score			; branch if PLAY_STATE is not negative (all deaths are negative play states)
 	JMP game_overscan
 
 .display_score
@@ -1280,7 +1263,7 @@ scoring SUBROUTINE scoring
 
 
 ; ----------------------------------
-; GAME - OVERSCAN 
+; GAME - OVERSCAN
 
 game_overscan SUBROUTINE game_overscan
 	OVERSCAN_KERNEL_SETUP
@@ -1319,7 +1302,7 @@ game_overscan SUBROUTINE game_overscan
 
 
 ; ----------------------------------
-; MACHINE INITIALISATION 
+; MACHINE INITIALISATION
 
 initialisation SUBROUTINE initialisation
 
