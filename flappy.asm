@@ -82,15 +82,19 @@ PLAY_STATE_DEATH_DROWN	= $FE
 	ORG $80			; start of 2600 RAM
 MULTI_COUNT_STATE				ds 1	; counts rounds of twos and threes
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
-FIRE_HELD								ds 1	; reflects INPT4 - positive if held from prev frame, negative if not
 BIRD_POS								ds 1	; between BIRD_HIGH and BIRD_LOW
+SELECTED_HEAD						ds 1	;	index into HEADS_TABLE
+
+; record state of input - used to prevent limit input to one frame only
+LAST_INPT4							ds 1
+LAST_SWCHB							ds 1
 
 ; selected flight pattern - see FLIGHT_PATTERN macros
 FLIGHT_PATTERN					ds 2
 
 ; which bird/detail sprite to use in the display kernel
-BIRD_SPRITE_ADDRESS			ds 2
-DETAIL_SPRITE_ADDRESS		ds 2
+SPRITE_WINGS_ADDRESS		ds 2
+SPRITE_HEAD_ADDRESS			ds 2
 
 ; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
@@ -108,7 +112,9 @@ DETAIL_SPRITE_ADDRESS		ds 2
 PATTERN_INDEX				ds 1
 
 ; value for next foliage (playfield) - points to FOLIAGE
-NEXT_FOLIAGE				ds 1
+FOLIAGE_SEED				ds 1
+OBSTACLE_SEED				ds 1
+BRANCH_SEED					ds 1
 
 ; obstacles
 OB_0_START					ds 1
@@ -117,17 +123,13 @@ OB_1_START					ds 1
 OB_1_END						ds 1
 OB_1_BRANCH					ds 1
 
-; start value for next obstacle - points to OBSTACLES
-NEXT_OBSTACLE					ds 1
-NEXT_BRANCH						ds 1
-
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
 OBSTACLE_0_DRAW				ds 1
 OBSTACLE_1_DRAW				ds 1
 OBSTACLE_1_NUSIZ			ds 1
 
 ; pre-calculated GRP0
-WINGS_DRAW							ds 1
+WINGS_DRAW					ds 1
 HEAD_DRAW						ds 1
 
 ; background trees
@@ -150,30 +152,34 @@ DIGIT_ADDRESS_1				ds 2
 	ORG $F000		; start of cart ROM
 
 ; sprite data
-WINGS_SPRITE
+; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
+WINGS
 WINGS_UP				HEX	00 00 00 00 30 70 60 40 
 WINGS_FLAT			HEX	00 00 00 00 70 40 00 00
 WINGS_DOWN			HEX	00 40 60 70 70 00 00 00
-DETAIL_SPRITE		HEX 00 00 00 00 10 0E 0C 10
+
+HEADS
+HEAD_GIRL_A			HEX 00 00 00 00 10 0E 0C 10
+HEAD_BOY_A			HEX 00 00 00 00 10 0E 0C 00
+HEAD_GIRL_B			HEX 00 00 00 00 10 0E 2C 10
+HEAD_BOY_B			HEX 00 00 00 00 10 0E 0C 02
+HEADS_TABLE			.byte <HEAD_GIRL_A, <HEAD_BOY_A, <HEAD_GIRL_B, <HEAD_BOY_B
+NUM_HEADS				= 4
+
 SPRITE_LINES		=	7
 
-; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
-
 ; table of obstacles (the lower the number, the lower the obstacle)
-OBSTACLES				HEX 15 25 35 45 55 65
-OBSTACLES_CT		= 6
+OBSTACLES			HEX 15 25 35 45 55 65
+OBSTACLES_LEN	= 6
 
 ; table of branches (the lower the number, the lower the obstacle)
 ; note: we test for branch on the odd scanlines of the play area so these values should be odd
-BRANCHES				HEX 19 27 31 39 45 59 71
-BRANCHES_CT			= 7
+BRANCHES			HEX 19 27 31 39 45 59 71
+BRANCHES_LEN	= 7
 
 ; foliage - playfield data
-; (see ".display_foliage" subroutine for full and laboured explanation)
-FOLIAGE
-FOLIAGE_1	.byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001, %01010000, %01010110, %00110011, %10101000
-FOLIAGE_2	.byte %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101
-FOLIAGE_3	.byte %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
+; (see "foliage" subroutine for full and laboured explanation)
+FOLIAGE .byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001, %01010000, %01010110, %00110011, %10101000, %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101, %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
 FOLIAGE_CHAOS_CYCLE	= 7
 
 ; background forest - initial values
@@ -216,7 +222,7 @@ COLLISION_PATTERN_LEN = 13
 
 
 ; ----------------------------------
-; MACROS - FLIGHT PATTERN
+; MACROS
 
 	MAC INITIALISE_FLIGHT_PATTERN_INDEX
 	; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
@@ -241,10 +247,6 @@ COLLISION_PATTERN_LEN = 13
 	STA PATTERN_INDEX
 	ENDM
 
-
-; ----------------------------------
-; MACROS - GENERAL
-
 	MAC DROWNING_PLAY_STATE
 	; change play state to death by drowning
 	LDA #BIRD_LOW
@@ -261,7 +263,7 @@ COLLISION_PATTERN_LEN = 13
 
 	; cycle playfield data used to illustrate foliage, and by
 	; association, the playfield used for the water/swamp
-	LDY NEXT_FOLIAGE
+	LDY FOLIAGE_SEED
 	INY
 	CPY #FOLIAGE_CHAOS_CYCLE
 	BCC .foliage_updated
@@ -294,7 +296,7 @@ COLLISION_PATTERN_LEN = 13
 	ENDIF
 
 .foliage_updated
-	STY NEXT_FOLIAGE
+	STY FOLIAGE_SEED
 	ENDM
 
 
@@ -317,7 +319,7 @@ title_screen SUBROUTINE title_screen
 .vblank
 	VBLANK_KERNEL_SETUP
 	LDA INPT4
-	STA FIRE_HELD
+	STA LAST_INPT4
 	BPL .end_title_screen
 	LDX #VISIBLE_SCANLINES
 	VBLANK_KERNEL_END
@@ -341,14 +343,16 @@ title_screen SUBROUTINE title_screen
 
 game_init SUBROUTINE game_init
 	; all bird sprites are on the same page ($F0) so no need to change the following in the sprite-vblank kernel
-	LDA #>WINGS_SPRITE
-	STA BIRD_SPRITE_ADDRESS+1
+	LDA #>WINGS
+	STA SPRITE_WINGS_ADDRESS+1
 
 	; all details sprites are on the same page ($F0) so no need to change the following in the sprite-vblank kernel
-	LDA #<DETAIL_SPRITE
-	STA DETAIL_SPRITE_ADDRESS
-	LDA #>DETAIL_SPRITE
-	STA DETAIL_SPRITE_ADDRESS+1
+	LDA #>HEADS
+	STA SPRITE_HEAD_ADDRESS+1
+	LDY #$0
+	STY SELECTED_HEAD
+	LDA HEADS_TABLE,Y
+	STA SPRITE_HEAD_ADDRESS
 
 	; DIGIT_ADDRESS_0/1 refers to the current number being drawn
 	LDA #<DIGITS
@@ -373,12 +377,12 @@ game_init SUBROUTINE game_init
 	CLC
 	ADC #OBSTACLE_WINDOW
 	STA OB_1_END
-	STY NEXT_OBSTACLE
+	STY OBSTACLE_SEED
 
 	LDY #$3
 	LDA BRANCHES,Y
 	STA OB_1_BRANCH
-	STY NEXT_BRANCH
+	STY BRANCH_SEED
 
 	; initalise background trees
 	LDA FOREST_MID_0_INIT
@@ -454,7 +458,6 @@ game_restart SUBROUTINE game_restart
 
 game_vsync SUBROUTINE game_vsync
 	VSYNC_KERNEL_BASIC
-
 	
 ; ----------------------------------
 ; GAME - VBLANK
@@ -482,17 +485,17 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	LDA INPT4
 	BMI .continue_ready_state
 
-	LDX FIRE_HELD
+	LDX LAST_INPT4
 	BPL .continue_ready_state
 
 .end_ready_state
-	STA FIRE_HELD
+	STA LAST_INPT4
 	LDA #PLAY_STATE_PLAY
 	STA PLAY_STATE
 	JMP game_vblank_end
 
 .continue_ready_state
-	STA FIRE_HELD
+	STA LAST_INPT4
 	JMP game_vblank_end
 
 
@@ -624,7 +627,7 @@ game_vblank_collisions
 
 .reset_obstacle_0
 	; get new bottom for obstacle 0
-	LDY NEXT_OBSTACLE
+	LDY OBSTACLE_SEED
 	LDA OBSTACLES,Y
 	STA OB_0_START
 	; calculate top of obstacle 0
@@ -649,7 +652,7 @@ game_vblank_collisions
 
 .reset_obstacle_1
 	; get new bottom for obstacle 1
-	LDY NEXT_OBSTACLE
+	LDY OBSTACLE_SEED
 	LDA OBSTACLES,Y
 	STA OB_1_START
 	; calculate top for obstacle 1
@@ -658,7 +661,7 @@ game_vblank_collisions
 	STA OB_1_END
 
 	; get new branch for obstacle 1
-	LDY NEXT_BRANCH
+	LDY BRANCH_SEED
 	LDA BRANCHES,Y
 	STA OB_1_BRANCH
 
@@ -703,7 +706,7 @@ game_vblank_collisions
 
 	; use fly down sprite
 	LDA #<WINGS_UP
-	STA BIRD_SPRITE_ADDRESS
+	STA SPRITE_WINGS_ADDRESS
 
 	; change play state
 	LDA #PLAY_STATE_COLLISION_PATTERN
@@ -725,18 +728,20 @@ game_vblank_player_sprite
 
 	; fire button is being pressed
 
+	; use joystick input to alter next random seeds
+
 	; change position of next obstacle - to save precious cycles
 	; we've deferred limiting the pointer to the overscan kernel
-	; NOTE: this is okay because we only reference NEXT_OBSTACLE
+	; NOTE: this is okay because we only reference OBSTACLE_SEED
 	; in the VBLANK - here and in "VBLANK - COLLISIONS". the overscan
 	; kernel will have run at least once before we next reference it
-	INC NEXT_OBSTACLE
+	INC OBSTACLE_SEED
 
-	; ditto for NEXT_BRANCH
-	INC NEXT_BRANCH
+	; ... similarly for BRANCH_SEED
+	INC BRANCH_SEED
 
 	; do nothing if fire is being held from last frame
-	LDX FIRE_HELD
+	LDX LAST_INPT4
 	BPL .process_flight_pattern
 
 	; new fire button press - start new fly animation
@@ -744,23 +749,23 @@ game_vblank_player_sprite
 	STX PATTERN_INDEX
 
 	; flip sprite in response to fire button press
-	LDX BIRD_SPRITE_ADDRESS
+	LDX SPRITE_WINGS_ADDRESS
 	CPX #<WINGS_DOWN
 	BEQ .flip_sprite_use_flat
 
 	LDX #<WINGS_DOWN
-	STX BIRD_SPRITE_ADDRESS
+	STX SPRITE_WINGS_ADDRESS
 	JMP .flip_sprite_end
 
 .flip_sprite_use_flat
 	LDX #<WINGS_FLAT
-	STX BIRD_SPRITE_ADDRESS
+	STX SPRITE_WINGS_ADDRESS
 .flip_sprite_end
 
 .process_flight_pattern
 	; save fire button state for next frame
 	; (accumulator should still reflect INPT4)
-	STA FIRE_HELD
+	STA LAST_INPT4
 
 	; apply FLIGHT_PATTERN to BIRD_POS
 	LDY PATTERN_INDEX
@@ -775,11 +780,11 @@ game_vblank_player_sprite
 	JMP .sprite_set
 .use_wings_up_sprite
 	LDX #<WINGS_UP
-	STX BIRD_SPRITE_ADDRESS
+	STX SPRITE_WINGS_ADDRESS
 	JMP .sprite_set
 .use_glide_sprite
 	LDX #<WINGS_FLAT
-	STX BIRD_SPRITE_ADDRESS
+	STX SPRITE_WINGS_ADDRESS
 .sprite_set
 
 	; check for ground collision
@@ -849,7 +854,7 @@ game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	LDX	#VISIBLE_LINES_FOLIAGE
 
 	; Y register keeps pointer to next foliage data to stuff into playfield
-	LDY NEXT_FOLIAGE
+	LDY FOLIAGE_SEED
 
 	; reset all movmement registers - we'll be triggering HMOVE every scanline and we
 	; don't want objects flying all over the screen. move registers will be reset
@@ -872,7 +877,7 @@ foliage SUBROUTINE foliage
 
 	; X register contains the number of VISIBLE_LINES_FOLIAGE remaining
 
-	; Y register contains the NEXT_FOLIAGE value
+	; Y register contains the FOLIAGE_SEED value
 	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 	; into FOLIAGE space to set the playfield values
 	;
@@ -881,13 +886,13 @@ foliage SUBROUTINE foliage
 	; scanlines in this part of the display; the main body of the routine is run every
 	; VISIBLE_LINES_PER_FOLIAGE; so:
 	;
-	;			max foliage index = NEXT_FOLIAGE + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
+	;			max_foliage_index = FOLIAGE_SEED + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
 	;
 	; as is, the routine would draw the same foliage every frame. to introduce some randomness,
-	; NEXT_FOLIAGE is increased by one every THREE_CYCLE frames in the vblank kernel. the maximum
-	; vaulue of NEXT_FOLIAGE at the start of the .display_foliage subroutine is therefore:
+	; FOLIAGE_SEED is increased by one every THREE_CYCLE frames in the vblank kernel. the maximum
+	; vaulue of FOLIAGE_SEED at the start of the foliage subroutine is therefore:
 	;
-	;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - mex_foliage_index
+	;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - max_foliage_index
 
 .next_foliage
 	; A = VISIBLE_LINES_PER_FOLIAGE 
@@ -1014,9 +1019,9 @@ game_play_area SUBROUTINE game_play_area
 	BCS .precalc_sprite_done				; 2/3
 	TYA															; 2
 	BMI .precalc_sprite_done				; 2/3
-	LDA (BIRD_SPRITE_ADDRESS),Y			; 5
+	LDA (SPRITE_WINGS_ADDRESS),Y			; 5
 	STA WINGS_DRAW										; 3 
-	LDA (DETAIL_SPRITE_ADDRESS),Y		; 5
+	LDA (SPRITE_HEAD_ADDRESS),Y		; 5
 	STA HEAD_DRAW									; 3 
 	DEY															; 2
 .precalc_sprite_done
@@ -1127,7 +1132,7 @@ swamp SUBROUTINE swamp
 	; (also note that this is the number of cycles left after the longest path, which occurs when the bird
 	; is at it's lowest point. ie. using extra cycle might not be noticable depending on the bird's position)
 
-	LDY NEXT_FOLIAGE			; 3
+	LDY FOLIAGE_SEED			; 3
 	LDX FOLIAGE,Y					; 4
 
 	; 3 cycles remaining until end of scanline
@@ -1268,6 +1273,29 @@ scoring SUBROUTINE scoring
 game_overscan SUBROUTINE game_overscan
 	OVERSCAN_KERNEL_SETUP
 
+	; read select switch
+	LDA SWCHB
+	AND #%00000010
+	BNE .heads_swapped
+.cycle_heads
+	; do nothing if select button is being held from last frame
+	LDA LAST_SWCHB
+	AND #%00000010
+	BEQ .heads_swapped
+
+	LDY SELECTED_HEAD
+	INY
+	CPY #NUM_HEADS
+	BNE .swap_heads
+	LDY #0
+.swap_heads
+	STY SELECTED_HEAD
+	LDA HEADS_TABLE,Y
+	STA SPRITE_HEAD_ADDRESS
+.heads_swapped
+	LDA SWCHB
+	STA LAST_SWCHB
+
 	; reset sprite image
 	LDA #0
 	STA GRP0
@@ -1278,20 +1306,20 @@ game_overscan SUBROUTINE game_overscan
 	STA COLUP0
 	STA COLUP1
 
-	; limit NEXT_OBSTACLE to maximum value
-	LDY NEXT_OBSTACLE
-	CPY #OBSTACLES_CT
+	; limit OBSTACLE_SEED to maximum value
+	LDY OBSTACLE_SEED
+	CPY #OBSTACLES_LEN
 	BCC .next_obstacle
 	LDY #$0
-	STY NEXT_OBSTACLE
+	STY OBSTACLE_SEED
 .next_obstacle
 
-	; limit NEXT_BRANCH to maximum value
-	LDY NEXT_BRANCH
-	CPY #BRANCHES_CT
+	; limit BRANCH_SEED to maximum value
+	LDY BRANCH_SEED
+	CPY #BRANCHES_LEN
 	BCC .next_branch
 	LDY #$0
-	STY NEXT_BRANCH
+	STY BRANCH_SEED
 .next_branch
 
 	MULTI_COUNT_UPDATE
