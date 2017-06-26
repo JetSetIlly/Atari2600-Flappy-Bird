@@ -147,7 +147,7 @@ DIGIT_ADDRESS_1				ds 2
 
 
 ; ----------------------------------
-; DATA - ROM
+; DATA - DATA / OBSTACLE DATA, ETC.
 	SEG
 	ORG $F000		; start of cart ROM
 
@@ -425,6 +425,10 @@ game_restart SUBROUTINE game_restart
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
 
+	; use flat wings sprite at start
+	LDA #<WINGS_FLAT
+	STA SPRITE_WINGS_ADDRESS
+
 	; speed of flight
 	LDA #OBSTACLE_SPEED
 	STA HMM0
@@ -434,6 +438,9 @@ game_restart SUBROUTINE game_restart
 	
 	; use the very first frame of the game sequence to position elements
 	STA WSYNC
+
+	; make sure movement registers are zero
+	STA HMCLR
 
 	; make sure beam is off
 	LDA	#2
