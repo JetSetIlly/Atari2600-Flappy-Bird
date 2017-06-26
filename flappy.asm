@@ -216,17 +216,38 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 ; see FLIGHT_PATTERN macros
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
 
-; TODO: multiple collision patterns
-COLLISION_PATTERN .byte 1, 2, 3, 3, 0, 0, 0, 0, -1, -2, -4, -6, -8, -10
-COLLISION_PATTERN_LEN = 13
-
 
 ; ----------------------------------
 ; MACROS
 
+	MAC APPLY_FLIGHT_PATTERN
+	LDY PATTERN_INDEX
+	LDA (FLIGHT_PATTERN),Y
+	CLC
+	ADC BIRD_POS
+	ENDM
+
 	MAC INITIALISE_FLIGHT_PATTERN_INDEX
+	; {1} == 1 -> initialise only if current index is >= last byte of flight pattern
+	; {1} == 0 -> initialise regardless
+
 	; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
 	; see FLIGHT_PATTERN definitions for memory layout explanation
+	LDY #$0
+	LDA (FLIGHT_PATTERN),Y
+	TAY
+	INY
+	LDA (FLIGHT_PATTERN),Y
+
+	IF {1} == "1"
+		CMP PATTERN_INDEX
+		BCS .no_store_index
+	ENDIF
+	STA PATTERN_INDEX
+.no_store_index
+	ENDM
+
+	MAC REWIND_FLIGHT_PATTERN_INDEX
 	LDY #$0
 	LDA (FLIGHT_PATTERN),Y
 	TAY
@@ -415,7 +436,7 @@ game_restart SUBROUTINE game_restart
 	LDA #>EASY_FLIGHT_PATTERN
 	STA FLIGHT_PATTERN+1
 
-	INITIALISE_FLIGHT_PATTERN_INDEX
+	INITIALISE_FLIGHT_PATTERN_INDEX 0
 
 	LDA #$0
 	STA SCORE
@@ -554,22 +575,14 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	STA HMP1
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
-	LDA BIRD_POS
-	LDX PATTERN_INDEX
-	CLC
-	ADC COLLISION_PATTERN,X
+	APPLY_FLIGHT_PATTERN
 
 	; we don't want BIRD_POS to fall below BIRD_LOW
 	CMP #BIRD_LOW
 	BCC	.end_death_collision
-
 	STA BIRD_POS
 
-	CPX #COLLISION_PATTERN_LEN
-	BCS .store_fly_frame
-	INX
-.store_fly_frame
-	STX PATTERN_INDEX
+	UPDATE_FLIGHT_PATTERN_INDEX
 	JMP game_vblank_skip_positioning
 
 .foliage
@@ -607,14 +620,14 @@ game_vblank_play SUBROUTINE game_vblank_play
 .far_jmp
 	JMP game_vblank_player_sprite
 
-	; -------------
-	; GAME - VBLANK - PLAY - FOLIAGE
+; -------------
+; GAME - VBLANK - PLAY - FOLIAGE
 game_vblank_foliage
 	FOLIAGE_ANIMATION 1
 	JMP game_vblank_end
 
-	; -------------
-	; GAME - VBLANK - PLAY - COLLISIONS
+; -------------
+; GAME - VBLANK - PLAY - COLLISIONS
 game_vblank_collisions
 	; check bird collision
 	BIT CXM0P
@@ -719,14 +732,13 @@ game_vblank_collisions
 	LDA #PLAY_STATE_COLLISION_PATTERN
 	STA PLAY_STATE
 
-	; begin fly down anim
-	LDA #0
-	STA PATTERN_INDEX
+	INITIALISE_FLIGHT_PATTERN_INDEX 1
 
 	JMP game_vblank_end
+
 	
-	; -------------
-	; GAME - VBLANK - PLAY - SPRITE
+; -------------
+; GAME - VBLANK - PLAY - SPRITE
 
 game_vblank_player_sprite
 	; check fire button
@@ -774,11 +786,7 @@ game_vblank_player_sprite
 	; (accumulator should still reflect INPT4)
 	STA LAST_INPT4
 
-	; apply FLIGHT_PATTERN to BIRD_POS
-	LDY PATTERN_INDEX
-	LDA (FLIGHT_PATTERN),Y
-	CLC
-	ADC BIRD_POS
+	APPLY_FLIGHT_PATTERN
 
 	; compare new BIRD_POS with old BIRD_POS and change sprite accordingly
 	CMP BIRD_POS
