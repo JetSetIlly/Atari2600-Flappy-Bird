@@ -58,40 +58,33 @@ OVERSCAN_SCANLINES = $1E	; 30
 
 ;-----------------------------------
 ; fine-tuned positioning routines -- TODO: needs work
+	MAC FINE_POS_SCREEN_LEFT
+	; {reset address} {coarse} {fine}
+		POS_RESET {1}, 57+({2}*3)
 
-	MAC FINE_POS_SCREEN_RIGHT
-	;	{reset address} {SINGLE|DOUBLE|QUADRUPLE|OCTUPLE}
-		POS_RESET {1}, 215
+		IF {3} > 0
+			LDA {3}
 
-		IF {2} == "SINGLE"
-			LDA #$C0	; -64
-		ENDIF
-		IF {2} == "DOUBLE"
-			LDA #$D0	; -48
-		ENDIF
-		IF {2} == "QUADRUPLE"
-			LDA #$F0	;	-16
-		ENDIF
-		IF {2} == "OCTUPLE"
-			LDA #$30	; +48
-		ENDIF
-
-		IF {1} == RESBL
-			STA HMBL
-		ENDIF
-		IF {1} == RESM0
-			STA HMM0
-		ENDIF
-		IF {1} == RESM1
-			STA HMM1
-		ENDIF
-		IF {1} == RESP0
-			STA HMP0
-		ENDIF
-		IF {1} == RESP1
-			STA HMP1
+			IF {1} == RESBL
+				STA HMBL
+			ENDIF
+			IF {1} == RESM0
+				STA HMM0
+			ENDIF
+			IF {1} == RESM1
+				STA HMM1
+			ENDIF
+			IF {1} == RESP0
+				STA HMP0
+			ENDIF
+			IF {1} == RESP1
+				STA HMP1
+			ENDIF
 		ENDIF
 	ENDM
+
+	; FINE_POS_ACTIVATE * FINE_POS_ACTIVATE_END are provided for completeness - in many projects
+	; you'll be able to forgo using these macros and instead use existing calls to WSYNC/HOME/HMCLR
 
 	MAC FINE_POS_ACTIVATE
 		STA WSYNC

@@ -247,15 +247,6 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 .no_store_index
 	ENDM
 
-	MAC REWIND_FLIGHT_PATTERN_INDEX
-	LDY #$0
-	LDA (FLIGHT_PATTERN),Y
-	TAY
-	INY
-	LDA (FLIGHT_PATTERN),Y
-	STA PATTERN_INDEX
-	ENDM
-
 	MAC UPDATE_FLIGHT_PATTERN_INDEX
 	STA BIRD_POS
 	INY
@@ -450,11 +441,6 @@ game_restart SUBROUTINE game_restart
 	LDA #<WINGS_FLAT
 	STA SPRITE_WINGS_ADDRESS
 
-	; speed of flight
-	LDA #OBSTACLE_SPEED
-	STA HMM0
-	STA HMM1
-
 	; POSITION ELEMENTS
 	
 	; use the very first frame of the game sequence to position elements
@@ -566,7 +552,7 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 
 game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	MULTI_COUNT_TWO_CMP
-	BNE .foliage
+	BNE .odd_scanlines
 
 	; set death spriral rebound speed
 	; note that we do this every frame because we trigger HMCLR every frame
@@ -585,7 +571,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	UPDATE_FLIGHT_PATTERN_INDEX
 	JMP game_vblank_skip_positioning
 
-.foliage
+.odd_scanlines
 	MULTI_COUNT_THREE_CMP 0
 	BPL .update_foliage
 	JMP game_vblank_skip_positioning
@@ -833,8 +819,8 @@ game_vblank_end SUBROUTINE game_vblank_end
 	; reset sprite objects to leftmost of the screen
 	; note: we do this every frame because RESP0 is used and moved for 
 	; the scoring subroutine
-	POS_SCREEN_LEFT RESP0, 4
-	POS_SCREEN_LEFT RESP1, 6
+	FINE_POS_SCREEN_LEFT RESP0, 4, 0
+	FINE_POS_SCREEN_LEFT RESP1, 6, 0
 
 game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; setup display kernel
@@ -1005,8 +991,7 @@ game_play_area SUBROUTINE game_play_area
 	LDX #VISIBLE_LINE_PLAYAREA
 	LDY #SPRITE_LINES
 
-	; loop alternates between .display_bird and .display_obstacle
-	; starting with .display_bird - branching at end of loop
+	; loop alternates between .display_bird and .display_obstacle starting with the latter
 
 	; X register contains the number of VISIBLE_LINE_PLAYAREA remaining
 
@@ -1014,14 +999,15 @@ game_play_area SUBROUTINE game_play_area
 	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
 	; to set the sprite line
 
+	; ODD NUMBERED SCANLINES
 .display_bird
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
-	LDA WINGS_DRAW							; 3
+	LDA WINGS_DRAW						; 3
 	STA GRP0									; 3
 
-	LDA HEAD_DRAW						; 3
+	LDA HEAD_DRAW							; 3
 	STA GRP1									; 3
 
 	; maximum 22 cycles in HBLANK
@@ -1034,10 +1020,10 @@ game_play_area SUBROUTINE game_play_area
 	BCS .precalc_sprite_done				; 2/3
 	TYA															; 2
 	BMI .precalc_sprite_done				; 2/3
-	LDA (SPRITE_WINGS_ADDRESS),Y			; 5
-	STA WINGS_DRAW										; 3 
-	LDA (SPRITE_HEAD_ADDRESS),Y		; 5
-	STA HEAD_DRAW									; 3 
+	LDA (SPRITE_WINGS_ADDRESS),Y		; 5
+	STA WINGS_DRAW									; 3 
+	LDA (SPRITE_HEAD_ADDRESS),Y			; 5
+	STA HEAD_DRAW										; 3 
 	DEY															; 2
 .precalc_sprite_done
 
@@ -1061,6 +1047,7 @@ game_play_area SUBROUTINE game_play_area
 	; 2 cycles remaining
 
 
+	; EVEN NUMBERED SCANLINES
 .display_obstacle
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
