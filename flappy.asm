@@ -32,8 +32,8 @@ BIRD_HIGH				=	VISIBLE_LINE_PLAYAREA
 BIRD_LOW				=	$0C
 
 ; death rates
-DEATH_COLLISION_SPEED	= $D0 ; speed at which player sprite moves foward during death collision
-DEATH_DROWNING_SPEEED	= $FF
+DEATH_COLLISION_SPEED	= $02 ; speed at which player sprite moves foward during death collision
+DEATH_DROWNING_SPEEED	= $01
 DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 value - first four bits set obstacle width
@@ -83,6 +83,7 @@ SLEEP_TABLE_JMP					ds 2
 MULTI_COUNT_STATE				ds 1	; counts rounds of twos and threes
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 BIRD_POS								ds 1	; between BIRD_HIGH and BIRD_LOW
+BIRD_HPOS								ds 1	; current horizontal pixel position of bird
 SELECTED_HEAD						ds 1	;	index into HEADS_TABLE
 
 ; record state of input - used to prevent limit input to one frame only
@@ -115,8 +116,6 @@ PATTERN_INDEX				ds 1
 FOLIAGE_SEED				ds 1
 OBSTACLE_SEED				ds 1
 BRANCH_SEED					ds 1
-
-BIRD_MOVEMENT				ds 1
 
 ; obstacles
 OB_0_START					ds 1
@@ -435,11 +434,13 @@ game_restart SUBROUTINE game_restart
 
 	LDA #$0
 	STA SCORE
-	STA BIRD_MOVEMENT
 	LDA #PLAY_STATE_READY
 	STA PLAY_STATE
 	LDA #BIRD_POS_INIT
 	STA BIRD_POS
+
+	LDA #$10
+	STA BIRD_HPOS
 
 	; use flat wings sprite at start
 	LDA #<WINGS_FLAT
@@ -526,11 +527,10 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	MULTI_COUNT_THREE_CMP 0
 	BNE .continue_drowning
 
-	; set death speed
-	; note that we do this every frame because we trigger HMCLR every frame
-	LDA #DEATH_DROWNING_SPEEED
-	STA HMP0
-	STA HMP1
+	LDA BIRD_HPOS
+	CLC
+	ADC #DEATH_DROWNING_SPEEED
+	STA BIRD_HPOS
 
 	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
 	LDX PATTERN_INDEX
@@ -546,7 +546,7 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	FOLIAGE_ANIMATION 0
 
 .continue_drowning
-	JMP game_vblank_skip_positioning
+	JMP game_vblank_end
 
 .drowning_end
 	JMP game_restart
@@ -559,13 +559,10 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	MULTI_COUNT_TWO_CMP
 	BNE .odd_scanlines
 
-	INC BIRD_MOVEMENT
-
-	; set death spriral rebound speed
-	; note that we do this every frame because we trigger HMCLR every frame
-	LDA #DEATH_COLLISION_SPEED
-	STA HMP0
-	STA HMP1
+	LDA BIRD_HPOS
+	CLC
+	ADC #DEATH_COLLISION_SPEED
+	STA BIRD_HPOS
 
 	; alter position (FLY FRAME is a 2's complement negative so we can add)
 	APPLY_FLIGHT_PATTERN
@@ -576,20 +573,20 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	STA BIRD_POS
 
 	UPDATE_FLIGHT_PATTERN_INDEX
-	JMP game_vblank_skip_positioning
+	JMP game_vblank_end
 
 .odd_scanlines
 	MULTI_COUNT_THREE_CMP 0
 	BPL .update_foliage
-	JMP game_vblank_skip_positioning
+	JMP game_vblank_end
 
 .update_foliage
 	FOLIAGE_ANIMATION 0
-	JMP game_vblank_skip_positioning
+	JMP game_vblank_end
 
 .end_death_collision
 	DROWNING_PLAY_STATE
-	JMP game_vblank_skip_positioning
+	JMP game_vblank_end
 
 
 ; ----------------------------------
@@ -624,11 +621,11 @@ game_vblank_foliage
 game_vblank_collisions
 	; check bird collision
 	BIT CXM0P
-	;BMI .bird_collision
-	;BVS .bird_collision
+	BMI .bird_collision
+	BVS .bird_collision
 	BIT CXM1P
-	;BMI .bird_collision
-	;BVS .bird_collision
+	BMI .bird_collision
+	BVS .bird_collision
 
 	; check for collision of obstacles with backstop
 	BIT CXM0FB
@@ -823,8 +820,12 @@ game_vblank_player_sprite
 
 game_vblank_end SUBROUTINE game_vblank_end
 
-	POS_SCREEN_LEFT RESP0, 4
-	POS_SCREEN_LEFT RESP1, 6
+	LDA BIRD_HPOS
+	FINE_POS_SCREEN RESP0
+	LDA BIRD_HPOS
+	CLC
+	ADC #$06
+	FINE_POS_SCREEN RESP1
 
 game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; setup display kernel
@@ -1186,11 +1187,6 @@ swamp SUBROUTINE swamp
 ; ----------------------------------
 ; GAME - DISPLAY - SCORING
 scoring SUBROUTINE scoring
-	LDA PLAY_STATE
-	BPL .display_score			; branch if PLAY_STATE is not negative (all deaths are negative play states)
-	JMP game_overscan
-
-.display_score
 	STA WSYNC
 	LDA #0
 	STA PF0
