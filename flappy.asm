@@ -24,7 +24,6 @@ SCORING_BACKGROUND			= $00
 SCORE_COLOR							= $0E
 HISCORE_COLOR						= $F6
 
-
 ; ----------------------------------
 ; DATA - CONSTANTS
 
@@ -63,7 +62,7 @@ BIRD_POS_INIT					=	BIRD_HIGH / 4 * 3
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 VISIBLE_LINES_SWAMP				= $03
-VISIBLE_LINE_PLAYAREA			= VISIBLE_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
+VISIBLE_LINE_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
 VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; the extra $04 scanlines in the score area are:
 ; * one at the start of the subroutine
@@ -80,6 +79,7 @@ PLAY_STATE_DEATH_DROWN	= $FE
 ; DATA - RAM
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
+SLEEP_TABLE_JMP					ds 2
 MULTI_COUNT_STATE				ds 1	; counts rounds of twos and threes
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 BIRD_POS								ds 1	; between BIRD_HIGH and BIRD_LOW
@@ -116,6 +116,8 @@ FOLIAGE_SEED				ds 1
 OBSTACLE_SEED				ds 1
 BRANCH_SEED					ds 1
 
+BIRD_MOVEMENT				ds 1
+
 ; obstacles
 OB_0_START					ds 1
 OB_0_END						ds 1
@@ -150,6 +152,8 @@ DIGIT_ADDRESS_1				ds 2
 ; DATA - DATA / OBSTACLE DATA, ETC.
 	SEG
 	ORG $F000		; start of cart ROM
+	
+	DEF_POS_SLEEP_TABLE
 
 ; sprite data
 ; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
@@ -333,7 +337,7 @@ title_screen SUBROUTINE title_screen
 	LDA INPT4
 	STA LAST_INPT4
 	BPL .end_title_screen
-	LDX #VISIBLE_SCANLINES
+	LDX #DISPLAY_SCANLINES
 	VBLANK_KERNEL_END
 
 .visible_loop
@@ -431,7 +435,7 @@ game_restart SUBROUTINE game_restart
 
 	LDA #$0
 	STA SCORE
-	STA HMP0				 ; player speed
+	STA BIRD_MOVEMENT
 	LDA #PLAY_STATE_READY
 	STA PLAY_STATE
 	LDA #BIRD_POS_INIT
@@ -458,13 +462,14 @@ game_restart SUBROUTINE game_restart
 	; position obstacle trigger (ball) at right most screen edge
 	; this will be hidden because of the aggresive triggering of HMOVE
 	; we do at the beginning of every scanline
-	POS_SCREEN_LEFT RESBL, 2
+	POS_SCREEN_LEFT RESBL, 0
 
 	; place obstacle 1 (missile 1) at right most screen edge
-	POS_SCREEN_RIGHT RESM1, 0
+	POS_SCREEN_RIGHT RESM1, 2
 
 	; place obstacle 0 (missile 1) at screen middle
 	POS_SCREEN_MID RESM0, 0
+
 
 
 ; ----------------------------------
@@ -554,6 +559,8 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	MULTI_COUNT_TWO_CMP
 	BNE .odd_scanlines
 
+	INC BIRD_MOVEMENT
+
 	; set death spriral rebound speed
 	; note that we do this every frame because we trigger HMCLR every frame
 	LDA #DEATH_COLLISION_SPEED
@@ -617,11 +624,11 @@ game_vblank_foliage
 game_vblank_collisions
 	; check bird collision
 	BIT CXM0P
-	BMI .bird_collision
-	BVS .bird_collision
+	;BMI .bird_collision
+	;BVS .bird_collision
 	BIT CXM1P
-	BMI .bird_collision
-	BVS .bird_collision
+	;BMI .bird_collision
+	;BVS .bird_collision
 
 	; check for collision of obstacles with backstop
 	BIT CXM0FB
@@ -816,11 +823,8 @@ game_vblank_player_sprite
 
 game_vblank_end SUBROUTINE game_vblank_end
 
-	; reset sprite objects to leftmost of the screen
-	; note: we do this every frame because RESP0 is used and moved for 
-	; the scoring subroutine
-	FINE_POS_SCREEN_LEFT RESP0, 4, 0
-	FINE_POS_SCREEN_LEFT RESP1, 6, 0
+	POS_SCREEN_LEFT RESP0, 4
+	POS_SCREEN_LEFT RESP1, 6
 
 game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; setup display kernel
@@ -1208,8 +1212,8 @@ scoring SUBROUTINE scoring
 	STA COLUP0
 	STA COLUP1
 
-	POS_SCREEN_RIGHT RESP0, 8
-	POS_SCREEN_RIGHT RESP1, 4
+	POS_SCREEN_RIGHT RESP0, 10
+	POS_SCREEN_RIGHT RESP1, 6
 
 	; get address of unit digit
 	LDA SCORE
@@ -1227,8 +1231,8 @@ scoring SUBROUTINE scoring
 	STA COLUP0
 	STA COLUP1
 
-	POS_SCREEN_RIGHT RESP0, 20
-	POS_SCREEN_RIGHT RESP1, 16
+	POS_SCREEN_RIGHT RESP0, 22
+	POS_SCREEN_RIGHT RESP1, 18
 
 	; get address of unit digit
 	LDA HISCORE
