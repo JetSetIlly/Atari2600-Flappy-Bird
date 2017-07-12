@@ -3,6 +3,8 @@
 ; 0.1 - 14/05/2017
 ;	0.2 - 09/07/2017 - fine positioning routines
 
+NULL = 0
+
 ; -----------------------------------
 ; DISPLAY CONSTANTS
 VBLANK_SCANLINES = $25		; 37
@@ -71,7 +73,7 @@ POS_SCREEN_CYCLES = 11
 ; COARSE POSITIONING (ACCUMULATOR)
 
 	MAC __POS_SCREEN_A
-		;	{reset address}
+		;	{sprite}
 		; accumulator to be preset with coarse position
 		; clobbers X register
 		; requires 16 bit memory location called _SLEEP_TABLE_JMP
@@ -95,14 +97,14 @@ POS_SCREEN_CYCLES = 11
 ; -----------------------------------
 ; COARSE POSITIONING (IMMEDIATE)
 	MAC __POS_SCREEN
-		;	{reset address}, {machine cycles}
+		;	{sprite}, {machine cycles}
 		STA WSYNC
 		SLEEP {2} - 1		; -1 to account for the following STA
 		STA {1}					; 3 cycles
 	ENDM
 
 	MAC POS_SCREEN_LEFT
-		;	{reset address}, {offset}
+		;	{sprite}, {offset}
 		IF {2} < 0 || {2} > 50
 			ECHO "MACRO ERROR: 'POS_SCREEN_LEFT': {2} must be >=0 AND <= 50"
 			ERR
@@ -115,17 +117,17 @@ POS_SCREEN_CYCLES = 11
 		; 68 clock counts to visible screen
 		; = 22 machine cycles
 		; 
-		; 3 cycles for STA {reset address}
+		; 3 cycles for STA {sprite}
 		; = 20 + 3 = 23 cycles	
 	ENDM
 
 	MAC POS_SCREEN_MID
-		;	{reset address}, {offset}
+		;	{sprite}, {offset}
 		__POS_SCREEN {1}, (132/3) + {2}
 	ENDM
 
 	MAC POS_SCREEN_RIGHT
-		;	{reset address}, {offset}
+		;	{sprite}, {offset}
 		IF {2} < 0 || {2} > 50
 			ECHO "MACRO ERROR: 'POS_SCREEN_LEFT': {2} must be >=0 AND <= 50"
 			ERR
@@ -137,43 +139,54 @@ POS_SCREEN_CYCLES = 11
 ; FINE POSITIONING
 
 	MAC FINE_POS_SCREEN_LEFT
-	; {reset address} {sprite width} {margin)
+	; {sprite} {position store} {sprite width} {margin)
+	; position store:
+	;		- memory address in which to store position
+	;		- do not store if "position store" == NULL or 0 
 	; margin:
 	;		- positive -> pixels
 	;		- negative -> multiples of sprite width
 	; note that {sprite width} doesn't mean very much except when {margin} is negative
-		ECHO {0}
-		IF !({2} == 1 || {2} == 2 || {2} == 4 || {2} == 8)
-			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_LEFT': value of {2} must be 1, 2, 4 or 8"
+		IF !({3} == 1 || {3} == 2 || {3} == 4 || {3} == 8)
+			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_LEFT': value of {3} must be 1, 2, 4 or 8"
 			ERR
 		ENDIF
-		IF {3} >= 0
-			LDA #(01 + {3})
+		IF {4} >= 0
+			LDA #(01 + {4})
 		ELSE
-			LDA #(01 + ({2} * -{3}))
+			LDA #(01 + ({3} * -{4}))
+		ENDIF
+		IF {2} != 0
+			STA {2}
 		ENDIF
 		FINE_POS_SCREEN {1}
 	ENDM
 
 	MAC FINE_POS_SCREEN_RIGHT
-	; {reset address} {sprite width} {margin}
+	; {sprite} {position store} {sprite width} {margin}
+	; position store:
+	;		- memory address in which to store position
+	;		- do not store if "position store" == "NONE" or 0 
 	; margin:
 	;		- positive -> pixels
 	;		- negative -> multiples of sprite width
-		IF !({2} == 1 || {2} == 2 || {2} == 4 || {2} == 8)
-			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_RIGHT': value of {2} must be 1, 2, 4 or 8"
+		IF !({3} == 1 || {3} == 2 || {3} == 4 || {3} == 8)
+			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_RIGHT': value of {3} must be 1, 2, 4 or 8"
 			ERR
 		ENDIF
-		IF {3} >= 0
-			LDA #(160 - {2} - {3})
+		IF {4} >= 0
+			LDA #(160 - {3} - {4})
 		ELSE
-			LDA #(160 - ({2} * (-{3}+1)))
+			LDA #(160 - ({3} * (-{4}+1)))
+		ENDIF
+		IF {2} != 0
+			STA {2}
 		ENDIF
 		FINE_POS_SCREEN {1}
 	ENDM
 
 	MAC FINE_POS_SCREEN
-	; {reset address}
+	; {sprite}
 	; accumulator to be preset with position value in pixels
 	; define FINE_POS_NO_LIMIT_CHECK to remove screen/jump-table boundary check
 
@@ -236,7 +249,7 @@ POS_SCREEN_CYCLES = 11
 	ENDM
 
 	MAC FINE_POS_MOVE_RIGHT
-		; {position} {amount}
+		; {position store} {amount}
 		; amount value should be positive
 		LDA {1}
 		CLC
@@ -250,7 +263,7 @@ POS_SCREEN_CYCLES = 11
 	ENDM
 
 	MAC FINE_POS_MOVE_LEFT
-		; {position} {amount}
+		; {position store} {amount}
 		; amount value should be positive
 		LDA {1}
 		SEC

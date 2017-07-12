@@ -53,10 +53,6 @@ BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | HEAD_SIZE
 ; so that we don't have to reset at the beginning of the next frame
 SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_DIGITS_SIZE
 
-; speed/width of obstacle when it's being reset
-; prevents extra collisions (which cause extra scoring)
-OBSTACLE_EXIT_SPEED		= $20
-
 ; start position at start of game 
 BIRD_VPOS_INIT					=	BIRD_HIGH / 4 * 3
 BIRD_HPOS_INIT					=	$0C
@@ -122,6 +118,8 @@ OBSTACLE_SEED				ds 1
 BRANCH_SEED					ds 1
 
 ; obstacles
+OB_0_HPOS						ds 1
+OB_1_HPOS						ds 1
 OB_0_START					ds 1
 OB_0_END						ds 1
 OB_1_START					ds 1
@@ -469,13 +467,12 @@ game_restart SUBROUTINE game_restart
 	; position obstacle trigger (ball) at right most screen edge
 	; this will be hidden because of the aggresive triggering of HMOVE
 	; we do at the beginning of every scanline
-	POS_SCREEN_LEFT RESBL, 0
+	FINE_POS_SCREEN_LEFT RESM0, OB_0_HPOS, 4, 74
 
 	; place obstacle 1 (missile 1) at right most screen edge
-	POS_SCREEN_RIGHT RESM1, 2
+	FINE_POS_SCREEN_RIGHT RESM1, OB_1_HPOS, 4, 5
 
 	; place obstacle 0 (missile 1) at screen middle
-	POS_SCREEN_MID RESM0, 0
 
 
 
@@ -593,15 +590,6 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 ; GAME - VBLANK - PLAY
 
 game_vblank_play SUBROUTINE game_vblank_play
-	; reset obstacle speed - do this every frame because we reset all move
-	; registers with HMCLR at the end of every vblank (after an earlier HMOVE)
-	; note that any obstacles that had OBSTACLE_EXIT_SPEED at the end of the
-	; last vblank do not need to sustain that speed for more than that one frame
-	; the "Activision border" helps us disguise the obstacle transition
-	LDA #OBSTACLE_SPEED
-	STA HMM0
-	STA HMM1
-
 	MULTI_COUNT_THREE_CMP 0
 	BEQ .far_jmp
 	BMI game_vblank_collisions
@@ -617,7 +605,7 @@ game_vblank_foliage
 	JMP game_vblank_end
 
 ; -------------
-; GAME - VBLANK - PLAY - COLLISIONS
+; GAME - VBLANK - PLAY - COLLISIONS / OBSTACLE RESET
 game_vblank_collisions
 	; check bird collision
 	BIT CXM0P
@@ -627,11 +615,15 @@ game_vblank_collisions
 	BMI .bird_collision
 	BVS .bird_collision
 
-	; check for collision of obstacles with backstop
-	BIT CXM0FB
-	BVS .reset_obstacle_0
-	BIT CXM1FB
-	BVS .reset_obstacle_1
+	; reset obstacle gap / branch in "activision border"
+	; we're comparing against three and less because we only run
+	; this "collision" vblank subroutine every three frames
+	LDA OB_0_HPOS
+	CMP #03
+	BCC .reset_obstacle_0
+	LDA OB_1_HPOS
+	CMP #03
+	BCC .reset_obstacle_1
 
 	JMP game_vblank_end
 
@@ -647,18 +639,7 @@ game_vblank_collisions
 
 	; NOTE: no branch ornamentation for obstacle 0
 
-	; increase speed / decrease size of obstacle temporarily
-	LDA #OBSTACLE_EXIT_SPEED
-	STA HMM0
-
-	; reset screen position
-	POS_SCREEN_LEFT RESM0, 0
-
-	; the combination of reset position and altered speed has the effect
-	; of completely masking changes to the obstacles appearance when
-	; it is reused
-
-	JMP .obstacle_reset_done
+	JMP .score_obstacle
 
 .reset_obstacle_1
 	; get new bottom for obstacle 1
@@ -675,18 +656,7 @@ game_vblank_collisions
 	LDA BRANCHES,Y
 	STA OB_1_BRANCH
 
-	; increase speed / decrease size of obstacle temporarily
-	LDA #OBSTACLE_EXIT_SPEED
-	STA HMM1
-
-	; reset screen position
-	POS_SCREEN_LEFT RESM1, 0
-
-	; the combination of reset position and altered speed has the effect
-	; of completely masking changes to the obstacles appearance when
-	; it is reused
-
-.obstacle_reset_done
+.score_obstacle
 	; increase score -- using decimal addition
 	SED
 	LDA SCORE
@@ -818,6 +788,11 @@ game_vblank_end SUBROUTINE game_vblank_end
 	ADC #$06
 	FINE_POS_SCREEN RESP1
 
+	LDA OB_0_HPOS
+	FINE_POS_SCREEN RESM0
+	LDA OB_1_HPOS
+	FINE_POS_SCREEN RESM1
+
 game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; setup display kernel
 
@@ -829,10 +804,6 @@ game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 
 	; reset collision flags every frame
 	STA CXCLR
-
-	; turn on trigger (ball) - turned off after foliage
-	LDA #$2
-	STA ENABL
 
 	; obstacles already turned off - will be turned on again halfway through foliage subroutine
 
@@ -937,10 +908,6 @@ foliage SUBROUTINE foliage
 
 game_play_area SUBROUTINE game_play_area
 	LDA #$0
-
-	; turn off trigger (ball) - we won't be doing any hmoves in the score area so it'll be
-	; visible. we turn it off now however because it is not needed
-	STA ENABL
 
 	; playfield priority - background trees behind obstacles
 	STA CTRLPF
@@ -1314,6 +1281,14 @@ game_overscan SUBROUTINE game_overscan
 	LDY #$0
 	STY BRANCH_SEED
 .next_branch
+
+	; progress obstacles
+	LDA PLAY_STATE
+	CMP #PLAY_STATE_PLAY
+	BNE .end_obstacle_progression
+	FINE_POS_MOVE_LEFT OB_0_HPOS, #1
+	FINE_POS_MOVE_LEFT OB_1_HPOS, #1
+.end_obstacle_progression
 
 	MULTI_COUNT_UPDATE
 
