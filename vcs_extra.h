@@ -13,7 +13,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 ; COARSE POSITIONING (SLEEP TABLES)
 
 	MAC DEF_POS_SLEEP_TABLE
-SLEEP_TABLE .byte >.SLEEP_POS_00, <.SLEEP_POS_00, >.SLEEP_POS_04, <.SLEEP_POS_04, >.SLEEP_POS_08, <.SLEEP_POS_08, >.SLEEP_POS_12, <.SLEEP_POS_12, >.SLEEP_POS_16, <.SLEEP_POS_16, >.SLEEP_POS_20, <.SLEEP_POS_20, >.SLEEP_POS_24, <.SLEEP_POS_24, >.SLEEP_POS_28, <.SLEEP_POS_28, >.SLEEP_POS_32, <.SLEEP_POS_32, >.SLEEP_POS_36, <.SLEEP_POS_36, >.SLEEP_POS_40, <.SLEEP_POS_40, >.SLEEP_POS_44, <.SLEEP_POS_44, >.SLEEP_POS_48, <.SLEEP_POS_48
+SLEEP_TABLE .byte >.SLEEP_POS_00, <.SLEEP_POS_00, >.SLEEP_POS_04, <.SLEEP_POS_04, >.SLEEP_POS_08, <.SLEEP_POS_08, >.SLEEP_POS_12, <.SLEEP_POS_12, >.SLEEP_POS_16, <.SLEEP_POS_16, >.SLEEP_POS_20, <.SLEEP_POS_20, >.SLEEP_POS_24, <.SLEEP_POS_24, >.SLEEP_POS_28, <.SLEEP_POS_28, >.SLEEP_POS_32, <.SLEEP_POS_32, >.SLEEP_POS_36, <.SLEEP_POS_36, >.SLEEP_POS_40, <.SLEEP_POS_40, >.SLEEP_POS_44, <.SLEEP_POS_44, >.SLEEP_POS_48, <.SLEEP_POS_48, >.SLEEP_POS_52, <.SLEEP_POS_52
 
 HBLANK_CYCLES = 20
 POS_SCREEN_CYCLES = 11
@@ -63,6 +63,8 @@ POS_SCREEN_CYCLES = 11
 			RTS
 .SLEEP_POS_48 SLEEP HBLANK_CYCLES + 48 - POS_SCREEN_CYCLES
 			RTS
+.SLEEP_POS_52 SLEEP HBLANK_CYCLES + 52 - POS_SCREEN_CYCLES
+			RTS
 	ENDM
 
 ; -----------------------------------
@@ -72,21 +74,21 @@ POS_SCREEN_CYCLES = 11
 		;	{reset address}
 		; accumulator to be preset with coarse position
 		; clobbers X register
-		; requires 16 bit memory location called SLEEP_TABLE_JMP
+		; requires 16 bit memory location called _SLEEP_TABLE_JMP
 
 		ASL
 		TAX
 		LDA SLEEP_TABLE,X
-		STA SLEEP_TABLE_JMP+1
+		STA _SLEEP_TABLE_JMP+1
 		INX
 		LDA SLEEP_TABLE,X
-		STA SLEEP_TABLE_JMP
+		STA _SLEEP_TABLE_JMP
 		JSR .sub
 		STA {1}
 		JMP .done
 .sub
 		STA WSYNC
-		JMP (SLEEP_TABLE_JMP)
+		JMP (_SLEEP_TABLE_JMP)
 .done
 	ENDM
 
@@ -134,10 +136,54 @@ POS_SCREEN_CYCLES = 11
 ; -----------------------------------
 ; FINE POSITIONING
 
+	MAC FINE_POS_SCREEN_LEFT
+	; {reset address} {sprite width} {margin)
+	; margin:
+	;		- positive -> pixels
+	;		- negative -> multiples of sprite width
+	; note that {sprite width} doesn't mean very much except when {margin} is negative
+		ECHO {0}
+		IF !({2} == 1 || {2} == 2 || {2} == 4 || {2} == 8)
+			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_LEFT': value of {2} must be 1, 2, 4 or 8"
+			ERR
+		ENDIF
+		IF {3} >= 0
+			LDA #(01 + {3})
+		ELSE
+			LDA #(01 + ({2} * -{3}))
+		ENDIF
+		FINE_POS_SCREEN {1}
+	ENDM
+
+	MAC FINE_POS_SCREEN_RIGHT
+	; {reset address} {sprite width} {margin}
+	; margin:
+	;		- positive -> pixels
+	;		- negative -> multiples of sprite width
+		IF !({2} == 1 || {2} == 2 || {2} == 4 || {2} == 8)
+			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_RIGHT': value of {2} must be 1, 2, 4 or 8"
+			ERR
+		ENDIF
+		IF {3} >= 0
+			LDA #(160 - {2} - {3})
+		ELSE
+			LDA #(160 - ({2} * (-{3}+1)))
+		ENDIF
+		FINE_POS_SCREEN {1}
+	ENDM
+
 	MAC FINE_POS_SCREEN
 	; {reset address}
 	; accumulator to be preset with position value in pixels
 	; define FINE_POS_NO_LIMIT_CHECK to remove screen/jump-table boundary check
+
+		; check for screen limits
+	IFCONST FINE_POS_LIMIT_CHECK
+		CMP #160
+		BCC .end_limit_check
+		LDA #160
+.end_limit_check
+	ENDIF
 
 		; find quotient and remainder when dividing by 12
 		;  - use the quotient (Y register) to coarsly place the "sprite"
@@ -152,14 +198,6 @@ POS_SCREEN_CYCLES = 11
 		INY
 		JMP .coarse_div
 .done_coarse_div
-
-		; check for screen limits
-	IFNCONST FINE_POS_NO_LIMIT_CHECK
-		CPY #13
-		BCC .fine_positioning
-		LDY #12
-		JMP .coarse_positioning
-	ENDIF
 
 .fine_positioning
 		; adjust fine tuning value into +7/-8 range
@@ -197,6 +235,34 @@ POS_SCREEN_CYCLES = 11
 		__POS_SCREEN_A {1}
 	ENDM
 
+	MAC FINE_POS_MOVE_RIGHT
+		; {position} {amount}
+		; amount value should be positive
+		LDA {1}
+		CLC
+		ADC {2}
+		CMP #160
+		BCC .fine_pos_move_done
+		SEC
+		SBC #160
+.fine_pos_move_done
+		STA {1}
+	ENDM
+
+	MAC FINE_POS_MOVE_LEFT
+		; {position} {amount}
+		; amount value should be positive
+		LDA {1}
+		SEC
+		SBC {2}
+		CMP #160
+		BCC .fine_pos_move_done
+		CLC
+		ADC #160
+.fine_pos_move_done
+		STA {1}
+	ENDM
+
 	; FINE_POS_ACTIVATE * FINE_POS_END are provided for completeness - in many projects
 	; you'll be able to forgo using these macros and instead use existing calls to WSYNC/HOME/HMCLR
 	MAC FINE_POS_ACTIVATE
@@ -207,6 +273,22 @@ POS_SCREEN_CYCLES = 11
 	MAC FINE_POS_END
 		; writing to HMCLR within 24 machine cycles of HMOVE will negate the HMOVE
 		STA HMCLR
+	ENDM
+
+; -----------------------------------
+; USER INPUT
+	MAC DISCREET_TRIGGER_PLAYER1
+		; return value: BPL on trigger, BMI on no trigger
+		LDX INPT4
+		BMI .done					; INPT4 is positive if trigger is pressed 
+		LDA _STATE_INPT4	; read state of INPT4 from when last read
+		; if _STATE_INPT4 is also negative, then there has not been a state change
+		; if it is positive then there has been a state change
+		; this is opposite to the normal meaning of INPT4 so flip the bits to
+		; correct the meaning
+		EOR #$FF
+.done
+		STX _STATE_INPT4	; store state of trigger for next read
 	ENDM
 
 ; -----------------------------------
@@ -376,12 +458,12 @@ POS_SCREEN_CYCLES = 11
 
 	MAC MULTI_COUNT_SETUP
 		LDA #%10000010						; 2
-		STA MULTI_COUNT_STATE			; 3
+		STA _MULTI_COUNT_STATE		; 3
 		; 5 cycles
 	ENDM
 
 	MAC MULTI_COUNT_UPDATE
-		LDA MULTI_COUNT_STATE			; 3
+		LDA _MULTI_COUNT_STATE		; 3
 		BMI .is_negative					; 2/3
 
 .is_positive
@@ -404,7 +486,7 @@ POS_SCREEN_CYCLES = 11
 		LDA #%00000010						; 2
 
 .store
-		STA MULTI_COUNT_STATE			; 3
+		STA _MULTI_COUNT_STATE		; 3
 		; cycles
 		; ------
 		; 20 - is_negative, negative_reset
@@ -418,7 +500,7 @@ POS_SCREEN_CYCLES = 11
 		; result (waiting for every other frame, or differentiating between the two states, is the same)
 		;		- branch on BEQ and BNE
 		LDA #%10000000						; 2
-		AND MULTI_COUNT_STATE			; 3
+		AND _MULTI_COUNT_STATE			; 3
 		; 5 cycles
 	ENDM
 
@@ -434,7 +516,7 @@ POS_SCREEN_CYCLES = 11
 		;			branch NOT ON third frame - BNE or BPL
 
 		LDA #%00000011						; 2
-		AND MULTI_COUNT_STATE			; 3
+		AND _MULTI_COUNT_STATE		; 3
 
 		IF {1} != 0
 			SEC											; 2
@@ -448,7 +530,7 @@ POS_SCREEN_CYCLES = 11
 		; result (waiting for sixth state)
 		;		- branch on BEQ (six count); BNE (non six count)
 		; (note that you can't differentiate the six states using this multi count method)
-		LDA MULTI_COUNT_STATE			; 3
+		LDA _MULTI_COUNT_STATE			; 3
 	ENDM
 
 ; -----------------------------------
