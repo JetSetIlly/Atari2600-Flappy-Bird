@@ -213,8 +213,8 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 
 ; flight patterns
 ; ===============
-; first byte is the length of the flight pattern (not including last byte). also note that we're
-;		indexing from 1 because index 0 is this length byte
+; first byte is the length of the flight pattern proper (not including last byte or the first
+; byte in the array).
 ;
 ; last byte is the index to initialse the pattern index to (usually start of the glide period)
 ;
@@ -236,27 +236,34 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 	ADC BIRD_VPOS
 	ENDM
 
-	MAC INITIALISE_FLIGHT_PATTERN_INDEX
-	; {1} == 1 -> initialise only if current index is >= last byte of flight pattern
-	; {1} == 0 -> initialise regardless
+DEATH_SPIRAL = 1
+ALWAYS = 0
+	MAC RESET_FLIGHT_PATTERN
+	; {1} == DEATH_SPIRAL
+	; {1} == ALWAYS
 
 	; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
 	; see FLIGHT_PATTERN definitions for memory layout explanation
+
+	; first byte in (FLIGHT_PATTERN) is the pattern's length 
 	LDY #$0
 	LDA (FLIGHT_PATTERN),Y
+	; last byte of (FLIGHT_PATTERN) is the pattern's index initialisation value
 	TAY
 	INY
 	LDA (FLIGHT_PATTERN),Y
 
-	IF {1} == "1"
+	IF {1} == DEATH_SPIRAL
 		CMP PATTERN_INDEX
+		; when called with the DEATH_SPIRAL argument AND the current PATTERN_INDEX is less than
+		; the initialisation value, then don't initialise the index
 		BCS .no_store_index
 	ENDIF
 	STA PATTERN_INDEX
 .no_store_index
 	ENDM
 
-	MAC UPDATE_FLIGHT_PATTERN_INDEX
+	MAC UPDATE_FLIGHT_PATTERN
 	STA BIRD_VPOS
 	INY
 	TYA
@@ -436,7 +443,7 @@ game_restart SUBROUTINE game_restart
 	LDA #>EASY_FLIGHT_PATTERN
 	STA FLIGHT_PATTERN+1
 
-	INITIALISE_FLIGHT_PATTERN_INDEX 0
+	RESET_FLIGHT_PATTERN 0
 
 	LDA #$0
 	STA SCORE
@@ -473,7 +480,6 @@ game_restart SUBROUTINE game_restart
 	FINE_POS_SCREEN_RIGHT RESM1, OB_1_HPOS, 4, 5
 
 	; place obstacle 0 (missile 1) at screen middle
-
 
 
 ; ----------------------------------
@@ -569,7 +575,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	BCC	.end_death_collision
 	STA BIRD_VPOS
 
-	UPDATE_FLIGHT_PATTERN_INDEX
+	UPDATE_FLIGHT_PATTERN
 	JMP game_vblank_end
 
 .odd_scanlines
@@ -692,7 +698,7 @@ game_vblank_collisions
 	LDA #PLAY_STATE_COLLISION
 	STA PLAY_STATE
 
-	INITIALISE_FLIGHT_PATTERN_INDEX 1
+	RESET_FLIGHT_PATTERN DEATH_SPIRAL
 
 	JMP game_vblank_end
 
@@ -770,7 +776,7 @@ game_vblank_player_sprite
 	LDA #BIRD_HIGH
 
 .update_flight_pattern_index
-	UPDATE_FLIGHT_PATTERN_INDEX
+	UPDATE_FLIGHT_PATTERN
 
 .fly_end
 	; fall through
@@ -780,7 +786,6 @@ game_vblank_player_sprite
 ; GAME - VBLANK - END
 
 game_vblank_end SUBROUTINE game_vblank_end
-
 	LDA BIRD_HPOS
 	FINE_POS_SCREEN RESP0
 	LDA BIRD_HPOS
