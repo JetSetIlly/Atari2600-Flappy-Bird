@@ -60,7 +60,10 @@ BIRD_HPOS_INIT					=	$0C
 ; visible display area
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
-VISIBLE_LINES_SWAMP				= $03
+
+; there's really three lines of swap because we put in an extra WSYNC so we can turn off the sprite in the HBLANK
+VISIBLE_LINES_SWAMP				= $02
+
 VISIBLE_LINE_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
 VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 ; the extra $04 scanlines in the score area are:
@@ -798,7 +801,6 @@ game_vblank_end SUBROUTINE game_vblank_end
 	LDA OB_1_HPOS
 	FINE_POS_SCREEN RESM1
 
-game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; setup display kernel
 
 	; do horizontal movement
@@ -813,7 +815,7 @@ game_vblank_skip_positioning SUBROUTINE game_vblank_skip_positioning
 	; obstacles already turned off - will be turned on again halfway through foliage subroutine
 
 	; playfield priority - foliage in front of obstacles
-	LDA #$4
+	LDA #%00000100
 	STA CTRLPF
 
 	; foliage colours
@@ -912,9 +914,8 @@ foliage SUBROUTINE foliage
 ; GAME - DISPLAY - PLAY AREA
 
 game_play_area SUBROUTINE game_play_area
-	LDA #$0
-
 	; playfield priority - background trees behind obstacles
+	LDA #%00000000
 	STA CTRLPF
 
 	; we want to stuff the playfield with new data as quickly as possible
@@ -1067,8 +1068,6 @@ game_play_area SUBROUTINE game_play_area
 	; = 71
 	; 5 cycles remaining
 
-	STA VDELP1
-
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
 	DEX												; 2
@@ -1127,6 +1126,11 @@ swamp SUBROUTINE swamp
 	STX PF0
 	STX PF1
 	STX PF2
+
+	; an extra line of swamp - so when we turn off the sprites below
+	; we do so in the HBLANK
+	STA WSYNC
+	STA HMOVE
 
 	; turn off sprites
 	LDA #$00
