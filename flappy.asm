@@ -6,12 +6,6 @@
 
 ; ----------------------------------
 ; DATA - TUNABLES
-; TODO: alter these according to console difficulty setting
-
-OBSTACLE_SPEED		= $10	; 1 pixel / update
-OBSTACLE_WINDOW		= $1F
-
-; tunables - but not related to difficulty
 
 ; colours
 FOREST_BACKGROUND				=	$D2
@@ -28,7 +22,7 @@ HISCORE_COLOR						= $F6
 ; DATA - CONSTANTS
 
 ; screen boundaries for bird sprite
-BIRD_HIGH				=	VISIBLE_LINE_PLAYAREA
+BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
 BIRD_LOW				=	$0C
 
 ; death rates
@@ -57,27 +51,28 @@ SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_DIGITS_SIZE
 BIRD_VPOS_INIT					=	BIRD_HIGH / 4 * 3
 BIRD_HPOS_INIT					=	$0C
 
-; visible display area
-VISIBLE_LINES_FOLIAGE			= $20
-VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
-
-; note that we don't loop the swamp WSYNCs because there are so few and we'll
-; be doing something useful during them
-; care should be taken to update this value, if we increase the number of WSYNCs
-VISIBLE_LINES_SWAMP				= $03
-
-VISIBLE_LINE_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
-VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
-; the extra $04 scanlines in the score area are:
-; * one at the start of the subroutine
-; * two position resets
-; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
 
 ; play state -- death states are all negative
 PLAY_STATE_PLAY					= $00
 PLAY_STATE_READY				= $01
 PLAY_STATE_COLLISION		= $FF
 PLAY_STATE_DEATH_DROWN	= $FE
+
+; visible scan line usage
+; =======================
+; note the extra $04 scanlines in the score area are:
+; * one at the start of the subroutine
+; * two position resets
+; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
+;
+; note that we don't loop the swamp WSYNCs because there are so few and we'll
+; be doing something useful during them
+; care should be taken to update this value, if we increase the number of WSYNCs
+VISIBLE_LINES_FOLIAGE			= $20
+VISIBLE_LINES_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
+VISIBLE_LINES_SWAMP				= $03
+VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
+VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 
 ; ----------------------------------
 ; DATA - RAM
@@ -123,18 +118,16 @@ OBSTACLE_SEED				ds 1
 BRANCH_SEED					ds 1
 
 ; obstacles
+OB_0								ds 2
+OB_1								ds 2
+OB_1_BRANCH					ds 1
 OB_0_HPOS						ds 1
 OB_1_HPOS						ds 1
-OB_0_START					ds 1
-OB_0_END						ds 1
-OB_1_START					ds 1
-OB_1_END						ds 1
-OB_1_BRANCH					ds 1
 
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
-OBSTACLE_0_DRAW				ds 1
-OBSTACLE_1_DRAW				ds 1
-OBSTACLE_1_NUSIZ			ds 1
+OB_0_DRAW						ds 1
+OB_1_DRAW						ds 1
+OB_1_NUSIZ					ds 1
 
 ; pre-calculated GRP0
 WINGS_DRAW					ds 1
@@ -159,8 +152,7 @@ DIGIT_ADDRESS_1				ds 2
 	SEG
 	ORG $F000		; start of cart ROM
 	
-	; we'll be using fine positioning from vcs_extra.h so include sleep table definitions
-	DEF_POS_SLEEP_TABLE
+DATA_SEGMENT
 
 ; sprite data
 ; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
@@ -178,15 +170,6 @@ HEADS_TABLE			.byte <HEAD_GIRL_A, <HEAD_BOY_A, <HEAD_GIRL_B, <HEAD_BOY_B
 NUM_HEADS				= 4
 
 SPRITE_LINES		=	7
-
-; table of obstacles (the lower the number, the lower the obstacle)
-OBSTACLES			HEX 15 25 35 45 55 65
-OBSTACLES_LEN	= 6
-
-; table of branches (the lower the number, the lower the obstacle)
-; note: we test for branch on the odd scanlines of the play area so these values should be odd
-BRANCHES			HEX 19 27 31 39 45 59 71
-BRANCHES_LEN	= 7
 
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
@@ -216,6 +199,63 @@ DIGIT_9	HEX 04 04 3C 24 3C
 DIGIT_LINES	= 4
 DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
+; obstacles tables
+; ===============
+;
+; * obstacle enable precalc table based on play ara of 153 lines
+;		- may need tuning if VISIBLE_LINES_PLAYAREA changes
+; * works as a barrel shifter
+;		- 153 lines before AND after window
+;		- there's room for optimisation
+; * the window (the zeroes in the table) is 32 bytes(lines)
+
+	; make sure we start on a page boundary - we don't want to cross a page boundary
+	ORG $F100
+
+OBSTACLE_ENABLE_PRECALC 
+. HEX 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02 02 02 02 02 02 02 02
+. HEX 02 02 02
+
+; list of obstacles to use
+OBSTACLES			HEX 25 35 45 55 65 75
+OBSTACLES_LEN	= 6
+
+; list of branches
+; note that we test for branch on the odd scanlines of the play area so these values should be odd
+BRANCHES			HEX 19 27 31 39 45 59 71
+BRANCHES_LEN	= 7
+
 ; flight patterns
 ; ===============
 ; first byte is the length of the flight pattern proper (not including last byte or the first
@@ -230,110 +270,152 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 ; see FLIGHT_PATTERN macros
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
 
+	; we'll be using fine positioning from vcs_extra.h so include sleep table definitions
+	DEF_POS_SLEEP_TABLE
 
 ; ----------------------------------
 ; MACROS
 
+	MAC NEW_OBSTACLE
+		; {1} == 0 or 1
+		; clobbers A and X
+		; alters OB_0 or OB_1
+
+		IF {1} != 0 && {1} != 1
+			ECHO "MACRO ERROR: 'NEW_OBSTACLE': {1} must be 0 OR 1"
+			ERR
+		ENDIF
+
+		LDX OBSTACLE_SEED
+		LDA #<OBSTACLE_ENABLE_PRECALC
+		CLC
+		ADC OBSTACLES,X
+
+		IF {1} == 0
+			STA OB_0
+		ENDIF
+
+		IF {1} == 1
+			STA OB_1
+			LDX BRANCH_SEED
+			LDA BRANCHES,X
+			STA OB_1_BRANCH
+		ENDIF
+	ENDM
+
+
 	MAC APPLY_FLIGHT_PATTERN
-	LDY PATTERN_INDEX
-	LDA (FLIGHT_PATTERN),Y
-	CLC
-	ADC BIRD_VPOS
+		; clobbers A and Y
+		LDY PATTERN_INDEX
+		LDA (FLIGHT_PATTERN),Y
+		CLC
+		ADC BIRD_VPOS
 	ENDM
 
 DEATH_SPIRAL = 1
 ALWAYS = 0
 	MAC RESET_FLIGHT_PATTERN
-	; {1} == DEATH_SPIRAL
-	; {1} == ALWAYS
+		; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
+		; see FLIGHT_PATTERN definitions for memory layout explanation
 
-	; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
-	; see FLIGHT_PATTERN definitions for memory layout explanation
+		; {1} == DEATH_SPIRAL || ALWAYS
+		; clobbers A and Y
+		; alters PATTERN_INDEX
 
-	; first byte in (FLIGHT_PATTERN) is the pattern's length 
-	LDY #$0
-	LDA (FLIGHT_PATTERN),Y
-	; last byte of (FLIGHT_PATTERN) is the pattern's index initialisation value
-	TAY
-	INY
-	LDA (FLIGHT_PATTERN),Y
+		; first byte in (FLIGHT_PATTERN) is the pattern's length 
+		LDY #$0
+		LDA (FLIGHT_PATTERN),Y
+		; last byte of (FLIGHT_PATTERN) is the pattern's index initialisation value
+		TAY
+		INY
+		LDA (FLIGHT_PATTERN),Y
 
-	IF {1} == DEATH_SPIRAL
-		CMP PATTERN_INDEX
-		; when called with the DEATH_SPIRAL argument AND the current PATTERN_INDEX is less than
-		; the initialisation value, then don't initialise the index
-		BCS .no_store_index
-	ENDIF
-	STA PATTERN_INDEX
+		IF {1} == DEATH_SPIRAL
+			CMP PATTERN_INDEX
+			; when called with the DEATH_SPIRAL argument AND the current PATTERN_INDEX is less than
+			; the initialisation value, then don't initialise the index
+			BCS .no_store_index
+		ENDIF
+		STA PATTERN_INDEX
 .no_store_index
 	ENDM
 
 	MAC UPDATE_FLIGHT_PATTERN
-	STA BIRD_VPOS
-	INY
-	TYA
-	LDX #$0
-	CMP (FLIGHT_PATTERN),X
-	BCC .store_index
-	LDA (FLIGHT_PATTERN),X
+		; requires PATTERN_INDEX in Y
+		; clobbers A
+		; alters Y and PATTERN_INDEX
+		STA BIRD_VPOS
+		INY
+		TYA
+		LDX #$0
+		CMP (FLIGHT_PATTERN),X
+		BCC .store_index
+		LDA (FLIGHT_PATTERN),X
 .store_index
-	STA PATTERN_INDEX
+		STA PATTERN_INDEX
 	ENDM
 
 	MAC DROWNING_PLAY_STATE
-	; change play state to death by drowning
-	LDA #BIRD_LOW
-	STA BIRD_VPOS
-	LDA #DEATH_DROWNING_LEN
-	STA PATTERN_INDEX
-	LDA #PLAY_STATE_DEATH_DROWN
-	STA PLAY_STATE
+		; change play state to death by drowning
 
-	; use wings up sprite for drowning sprite
-	LDA #<WINGS_UP
-	STA SPRITE_WINGS_ADDRESS
+		; clobbers A
+		; alters BIRD_VPOS, PATTERN_INDEX, PLAY_STATE
+
+		LDA #BIRD_LOW
+		STA BIRD_VPOS
+		LDA #DEATH_DROWNING_LEN
+		STA PATTERN_INDEX
+		LDA #PLAY_STATE_DEATH_DROWN
+		STA PLAY_STATE
+
+		; use wings up sprite for drowning sprite
+		LDA #<WINGS_UP
+		STA SPRITE_WINGS_ADDRESS
 	ENDM
 
 	MAC FOLIAGE_ANIMATION
-	; {1} == 0 -> do NOT the forest background
-	; {1} == n -> do animate the forest background (at the speed of FOLIAGE CHAOS CYCLE)
+		; {1} == 0 -> do NOT the forest background
+		; {1} == n -> do animate the forest background (at the speed of FOLIAGE CHAOS CYCLE)
 
-	; cycle playfield data used to illustrate foliage, and by
-	; association, the playfield used for the water/swamp
-	LDY FOLIAGE_SEED
-	INY
-	CPY #FOLIAGE_CHAOS_CYCLE
-	BCC .foliage_updated
-	LDY #0
+		; clobbers Y
+		; alters FOREST_MID_0, FOREST_MID_1, FOREST_MID_2, FOLIAGE_SEED
 
-	; rotate forest whenever foliage chaos cycle resets
-	IF {1} == 1
+		; cycle playfield data used to illustrate foliage, and by
+		; association, the playfield used for the water/swamp
+		LDY FOLIAGE_SEED
+		INY
+		CPY #FOLIAGE_CHAOS_CYCLE
+		BCC .foliage_updated
+		LDY #0
+
+		; rotate forest whenever foliage chaos cycle resets
+		IF {1} == 1
 .rotate_forest
-		CLC
-		ROR FOREST_MID_0
-		LDA FOREST_MID_0
-		AND #%00001000
-		BNE .jump_tree
-		JMP .cont_forest
+			CLC
+			ROR FOREST_MID_0
+			LDA FOREST_MID_0
+			AND #%00001000
+			BNE .jump_tree
+			JMP .cont_forest
 .jump_tree
-		LDA #%11110000
-		AND FOREST_MID_0
-		STA FOREST_MID_0
-		SEC
+			LDA #%11110000
+			AND FOREST_MID_0
+			STA FOREST_MID_0
+			SEC
 .cont_forest
-		ROR FOREST_MID_2
-		ROL FOREST_MID_1
-		BCS .carry_tree
-		JMP .forest_done
+			ROR FOREST_MID_2
+			ROL FOREST_MID_1
+			BCS .carry_tree
+			JMP .forest_done
 .carry_tree
-		LDA #%10000000
-		ORA FOREST_MID_0
-		STA FOREST_MID_0
+			LDA #%10000000
+			ORA FOREST_MID_0
+			STA FOREST_MID_0
 .forest_done
 	ENDIF
 
 .foliage_updated
-	STY FOLIAGE_SEED
+		STY FOLIAGE_SEED
 	ENDM
 
 
@@ -378,47 +460,29 @@ title_screen SUBROUTINE title_screen
 ; GAME STATE INITIALISATION
 
 game_state_init SUBROUTINE game_state_init
-	; all bird sprites are on the same page ($F0) so no need to change the following in the sprite-vblank kernel
-	LDA #>WINGS
+	; initialise most significant byte of indirect addresses
+	LDA #>DATA_SEGMENT
 	STA SPRITE_WINGS_ADDRESS+1
-
-	; all details sprites are on the same page ($F0) so no need to change the following in the sprite-vblank kernel
-	LDA #>HEADS
 	STA SPRITE_HEAD_ADDRESS+1
+	STA DIGIT_ADDRESS_0+1
+	STA DIGIT_ADDRESS_1+1
+	LDA #>OBSTACLE_ENABLE_PRECALC
+	STA OB_0+1
+	STA OB_1+1
+
+	; initialise head
 	LDY #$0
 	STY SELECTED_HEAD
 	LDA HEADS_TABLE,Y
 	STA SPRITE_HEAD_ADDRESS
 
-	; DIGIT_ADDRESS_0/1 refers to the current number being drawn
-	LDA #<DIGITS
-	STA DIGIT_ADDRESS_0
-	STA DIGIT_ADDRESS_1
-	; all bird sprites are on the $F0 page so no need to change the following in the sprite-vblank kernel
-	LDA #>DIGITS
-	STA DIGIT_ADDRESS_0+1
-	STA DIGIT_ADDRESS_1+1
-
 	; initialise obstacles
-	LDY #$3
-	LDA OBSTACLES,Y
-	STA OB_0_START
-	CLC
-	ADC #OBSTACLE_WINDOW
-	STA OB_0_END
-
-	LDY #$5
-	LDA OBSTACLES,Y
-	STA OB_1_START
-	CLC
-	ADC #OBSTACLE_WINDOW
-	STA OB_1_END
-	STY OBSTACLE_SEED
-
-	LDY #$3
-	LDA BRANCHES,Y
-	STA OB_1_BRANCH
-	STY BRANCH_SEED
+	LDA #$2
+	STA OBSTACLE_SEED
+	STA BRANCH_SEED
+	NEW_OBSTACLE 0
+	INC OBSTACLE_SEED
+	NEW_OBSTACLE 1
 
 	; initalise background trees
 	LDA FOREST_MID_0_INIT
@@ -655,33 +719,12 @@ game_vblank_collisions
 	JMP game_vblank_end
 
 .reset_obstacle_0
-	; get new bottom for obstacle 0
-	LDY OBSTACLE_SEED
-	LDA OBSTACLES,Y
-	STA OB_0_START
-	; calculate top of obstacle 0
-	CLC
-	ADC #OBSTACLE_WINDOW
-	STA OB_0_END
-
 	; NOTE: no branch ornamentation for obstacle 0
-
+	NEW_OBSTACLE 0
 	JMP .score_obstacle
 
 .reset_obstacle_1
-	; get new bottom for obstacle 1
-	LDY OBSTACLE_SEED
-	LDA OBSTACLES,Y
-	STA OB_1_START
-	; calculate top for obstacle 1
-	CLC
-	ADC #OBSTACLE_WINDOW
-	STA OB_1_END
-
-	; get new branch for obstacle 1
-	LDY BRANCH_SEED
-	LDA BRANCHES,Y
-	STA OB_1_BRANCH
+	NEW_OBSTACLE 1
 
 .score_obstacle
 	; increase score -- using decimal addition
@@ -843,7 +886,7 @@ game_vblank_end SUBROUTINE game_vblank_end
 	STA COLUPF
 
 	; X register will contain the current scanline for the duration of the display kernal
-	; starting with VISIBLE_LINES_FOLIAGE and then VISIBLE_LINE_PLAYAREA, loaded later
+	; starting with VISIBLE_LINES_FOLIAGE and then VISIBLE_LINES_PLAYAREA, loaded later
 	LDX	#VISIBLE_LINES_FOLIAGE
 
 	; Y register keeps pointer to next foliage data to stuff into playfield
@@ -975,12 +1018,12 @@ game_play_area SUBROUTINE game_play_area
 
 	; prepare for loop
 
-	LDX #VISIBLE_LINE_PLAYAREA
+	LDX #VISIBLE_LINES_PLAYAREA
 	LDY #SPRITE_LINES
 
 	; loop alternates between .display_bird and .display_obstacle starting with the latter
 
-	; X register contains the number of VISIBLE_LINE_PLAYAREA remaining
+	; X register contains the number of VISIBLE_LINES_PLAYAREA remaining
 
 	; Y register contains number of SPRITE_LINES remaining
 	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
@@ -1021,7 +1064,7 @@ game_play_area SUBROUTINE game_play_area
 	BNE .precalc_branch_done	; 2/3
 	LDA #BRANCH_NUSIZ_VAL			; 3
 .precalc_branch_done
-	STA OBSTACLE_1_NUSIZ			; 3
+	STA OB_1_NUSIZ						; 3
 
 	JMP .next_scanline				; 3
 
@@ -1040,12 +1083,12 @@ game_play_area SUBROUTINE game_play_area
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
-	LDA OBSTACLE_1_NUSIZ			; 3
+	LDA OB_1_NUSIZ						; 3
 	STA NUSIZ1								; 3
 
-	LDA OBSTACLE_0_DRAW				; 3
+	LDA OB_0_DRAW							; 3
 	STA ENAM0									; 3
-	LDA OBSTACLE_1_DRAW				; 3
+	LDA OB_1_DRAW							; 3
 	STA ENAM1									; 3
 
 	; maximum 22 cycles in HBLANK
@@ -1053,37 +1096,23 @@ game_play_area SUBROUTINE game_play_area
 	;		1 cycles until end of HBLANK
 
 .precalc_obstacles
-	; we don't have time in the HBLANK to do all this comparing and branching
-	; so we "precalc" the results now in time for the next scanline
-	; we're using precious visible scanline cycles of course, but all the important
-	; "drawing" is done during the hblank and the first part of the visible screen
-
-.precalc_obstacle_0
-	LDA #$2										; 2
-	CPX OB_0_START						; 3
-	BCC .obstacle_0_done			; 2/3
-	CPX OB_0_END							; 3
-	BCS .obstacle_0_done			; 2/3
-	LDA #$0										; 2
-.obstacle_0_done
-	STA OBSTACLE_0_DRAW				; 3
-
-.precalc_obstacle_1
-	LDA #$2										; 2
-	CPX OB_1_START						; 3
-	BCC .obstacle_1_done			; 2/3
-	CPX OB_1_END							; 3
-	BCS .obstacle_1_done			; 2/3	
-	LDA #$0										; 2
-.obstacle_1_done
-	STA OBSTACLE_1_DRAW				; 3
+	TYA												; 2
+	PHA												; 3
+	TXA												; 2
+	TAY												; 2
+	LDA (OB_0),Y							; 5
+	STA OB_0_DRAW							; 3
+	LDA (OB_1),Y							; 5
+	STA OB_1_DRAW							; 3
+	PLA												; 4
+	TAY												; 2
 
 	; longest path
-	;		55 cycles
+	;		52 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
 	; = 71
-	; 5 cycles remaining
+	; 8 cycles remaining
 
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
