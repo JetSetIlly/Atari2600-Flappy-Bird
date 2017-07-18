@@ -61,8 +61,10 @@ BIRD_HPOS_INIT					=	$0C
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 
-; there's really three lines of swap because we put in an extra WSYNC so we can turn off the sprite in the HBLANK
-VISIBLE_LINES_SWAMP				= $02
+; note that we don't loop the swamp WSYNCs because there are so few and we'll
+; be doing something useful during them
+; care should be taken to update this value, if we increase the number of WSYNCs
+VISIBLE_LINES_SWAMP				= $03
 
 VISIBLE_LINE_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
 VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
@@ -168,10 +170,10 @@ WINGS_FLAT			HEX	00 00 00 00 70 40 00 00
 WINGS_DOWN			HEX	00 40 60 70 70 00 00 00
 
 HEADS
-HEAD_GIRL_A			HEX 00 00 00 00 10 0E 0C 10
-HEAD_BOY_A			HEX 00 00 00 00 10 0E 0C 00
-HEAD_GIRL_B			HEX 00 00 00 00 10 0E 2C 10
-HEAD_BOY_B			HEX 00 00 00 00 10 0E 0C 02
+HEAD_GIRL_A			HEX 00 00 00 00 20 1C 18 20
+HEAD_BOY_A			HEX 00 00 00 00 20 1C 18 00
+HEAD_GIRL_B			HEX 00 00 00 00 20 1C 58 20
+HEAD_BOY_B			HEX 00 00 00 00 20 1C 18 04
 HEADS_TABLE			.byte <HEAD_GIRL_A, <HEAD_BOY_A, <HEAD_GIRL_B, <HEAD_BOY_B
 NUM_HEADS				= 4
 
@@ -286,6 +288,10 @@ ALWAYS = 0
 	STA PATTERN_INDEX
 	LDA #PLAY_STATE_DEATH_DROWN
 	STA PLAY_STATE
+
+	; use wings up sprite for drowning sprite
+	LDA #<WINGS_UP
+	STA SPRITE_WINGS_ADDRESS
 	ENDM
 
 	MAC FOLIAGE_ANIMATION
@@ -562,6 +568,18 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 ; GAME - VBLANK - DEATH - COLLISION
 
 game_vblank_death_collision SUBROUTINE game_vblank_death_collision
+	; flip collision animation on six count
+	MULTI_COUNT_SIX_CMP
+	BEQ .six_cnt
+.non_six_cnt
+	LDA #<WINGS_UP
+	STA SPRITE_WINGS_ADDRESS
+	JMP .done_six_cnt
+.six_cnt
+	LDA #<WINGS_DOWN
+	STA SPRITE_WINGS_ADDRESS
+.done_six_cnt
+
 	MULTI_COUNT_TWO_CMP
 	BNE .odd_scanlines
 
@@ -693,7 +711,7 @@ game_vblank_collisions
 	; be stopped at the end of the vblank (as usual) but won't be restarted 
 	; in the game_vblank_death subroutine
 
-	; use fly down sprite
+	; start collision animation with wings up sprite
 	LDA #<WINGS_UP
 	STA SPRITE_WINGS_ADDRESS
 
@@ -793,7 +811,7 @@ game_vblank_end SUBROUTINE game_vblank_end
 	FINE_POS_SCREEN RESP0
 	LDA BIRD_HPOS
 	CLC
-	ADC #$06
+	ADC #$07
 	FINE_POS_SCREEN RESP1
 
 	LDA OB_0_HPOS
@@ -1022,7 +1040,6 @@ game_play_area SUBROUTINE game_play_area
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
-
 	LDA OBSTACLE_1_NUSIZ			; 3
 	STA NUSIZ1								; 3
 
@@ -1137,18 +1154,13 @@ swamp SUBROUTINE swamp
 	STA GRP0
 	STA GRP1
 
-	; make sure we don't draw sprite at the top of next frame by accident
+	; make sure we don't draw the sprites at the top of next frame by accident
 	STA WINGS_DRAW
 	STA HEAD_DRAW
 
-	; wait for end of the swamp ...
-	LDX #VISIBLE_LINES_SWAMP
-.next_scanline
-	DEX													; 2
-	BEQ scoring									; 2/3
+	; wait another line before display - scoring
 	STA WSYNC
 	STA HMOVE
-	JMP .next_scanline					; 3
 
 
 ; ----------------------------------
