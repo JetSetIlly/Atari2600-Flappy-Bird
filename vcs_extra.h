@@ -549,71 +549,139 @@ POS_SCREEN_CYCLES = 11
 ; -----------------------------------
 ; TWO/THREE COUNTS
 	MAC TWO_COUNT_SETUP_X
-		; requires a 8bit memory address labelled TWO_COUNT_STATE
+		; require 8bit memory address labelled _TWO_COUNT_STATE
 		LDX #$1									; 2
-		STX TWO_COUNT_STATE			; 3
+		STX _TWO_COUNT_STATE		; 3
 		; 5 cycles
 	ENDM
 
 	MAC TWO_COUNT_UPDATE_X
-		LDX TWO_COUNT_STATE			; 3
+		; require 8bit memory address labelled _TWO_COUNT_STATE
+		LDX _TWO_COUNT_STATE			; 3
 		DEX											; 2
 		BPL .store_cycle_count	; 2/3
 		LDX #$1									; 2
 .store_cycle_count
-		STX TWO_COUNT_STATE			; 3
+		STX _TWO_COUNT_STATE			; 3
 		; 12/13 cycles
 	ENDM
 
 	MAC TWO_COUNT_CMP_X
+		; require 8bit memory address labelled _TWO_COUNT_STATE
 		; result - branch on BEQ and BNE
-		LDX TWO_COUNT_STATE			; 3
+		LDX _TWO_COUNT_STATE			; 3
 		; 3 cycles
 	ENDM
 
 
 	MAC TWO_COUNT_SETUP_A
-		; requires a 8bit memory address labelled TWO_COUNT_STATE
+		; require 8bit memory address labelled _TWO_COUNT_STATE
 		LDA #$1									; 2
-		STA TWO_COUNT_STATE			; 3
+		STA _TWO_COUNT_STATE		; 3
 		; 5 cycles
 	ENDM
 
 	MAC TWO_COUNT_UPDATE_A
+		; require 8bit memory address labelled _TWO_COUNT_STATE
 		LDA #%00000001					; 2
-		EOR TWO_COUNT_STATE			; 3
+		EOR _TWO_COUNT_STATE		; 3
 		; 5 cycles
 	ENDM
 
 	MAC TWO_COUNT_CMP_A
+		; require 8bit memory address labelled _TWO_COUNT_STATE
 		; result - branch on BEQ and BNE
-		LDA TWO_COUNT_STATE			; 3
+		LDA _TWO_COUNT_STATE		; 3
 		; 3 cycles
 	ENDM
 
 
 	MAC THREE_COUNT_SETUP_X
-		; requires a 8bit memory address labelled THREE_COUNT_STATE
+		; require 8bit memory address labelled _THREE_COUNT_STATE
 		LDX #$2									; 2
-		STX THREE_COUNT_STATE		; 3
+		STX _THREE_COUNT_STATE	; 3
 		; 5 cycles
 	ENDM
 
 	MAC THREE_COUNT_UPDATE_X
-		LDX THREE_COUNT_STATE		; 3
+		; require 8bit memory address labelled _THREE_COUNT_STATE
+		LDX _THREE_COUNT_STATE	; 3
 		DEX											; 2
 		BPL .store_cycle_count	; 2/3
 		LDX #$2									; 2
 .store_cycle_count
-		STX THREE_COUNT_STATE		; 3
+		STX _THREE_COUNT_STATE	; 3
 		; 12/13 cycles
 	ENDM
 
 	MAC THREE_COUNT_CMP_X
+		; require 8bit memory address labelled _THREE_COUNT_STATE
 		; result - branch on BEQ, BMI and BPL - check for equality before positivity (equality implies positivity)
-		LDX THREE_COUNT_STATE		; 3
+		LDX _THREE_COUNT_STATE	; 3
 		DEX											; 2
 		; 5 cycles
+	ENDM
+
+; -----------------------------------
+; NANO STACK ROUTINES
+
+; 1 byte "stack" for those times where full stack manipulation is too expensive
+; just make sure that _NANO_STACK isn't clobbered between calls to PSH and PUL
+
+	MAC NANO_STACK_PSH
+		; require 8bit memory address labelled _NANO_STACK
+		; uses 2 cycles
+		IF {1} != "A" && {1} != "X" && {1} != "Y" 
+			ECHO "MACRO ERROR: 'NANO_STACK_PSH': {1} must be A, X, or Y"
+			ERR
+		ENDIF
+
+		IF {1} == "A"
+			STA _NANO_STACK
+		ENDIF
+		IF {1} == "X"
+			STX _NANO_STACK
+		ENDIF
+		IF {1} == "Y"
+			STY _NANO_STACK
+		ENDIF
+	ENDM
+
+	MAC NANO_STACK_PUL
+		; require 8bit memory address labelled _NANO_STACK
+		; uses 2 cycles
+		IF {1} != "A" && {1} != "X" && {1} != "Y" 
+			ECHO "MACRO ERROR: 'NANO_STACK_PUL': {1} must be A, X, or Y"
+			ERR
+		ENDIF
+
+		IF {1} == "A"
+			LDA _NANO_STACK
+		ENDIF
+		IF {1} == "X"
+			LDX _NANO_STACK
+		ENDIF
+		IF {1} == "Y"
+			LDY _NANO_STACK
+		ENDIF
+	ENDM
+
+	MAC NANO_STACK_TXY
+		; require 8bit memory address labelled _NANO_STACK
+		; clobbers A
+		; uses 6 cycles
+		NANO_STACK_PSH "Y"
+		TXA
+		TAY
+	ENDM
+
+	MAC NANO_STACK_TYX
+		; require 8bit memory address labelled _NANO_STACK
+		; clobbers A
+		; uses 6 cycles
+		NANO_STACK_PSH "X"
+		TYA
+		TAX
 	ENDM
 
 ; -----------------------------------

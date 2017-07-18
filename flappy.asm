@@ -83,6 +83,8 @@ VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 _SLEEP_TABLE_JMP				ds 2
 _MULTI_COUNT_STATE			ds 1
 _STATE_INPT4						ds 1
+_NANO_STACK							ds 1
+
 STATE_SWCHB							ds 1
 
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
@@ -1096,23 +1098,19 @@ game_play_area SUBROUTINE game_play_area
 	;		1 cycles until end of HBLANK
 
 .precalc_obstacles
-	TYA												; 2
-	PHA												; 3
-	TXA												; 2
-	TAY												; 2
+	NANO_STACK_TXY						; 6
 	LDA (OB_0),Y							; 5
 	STA OB_0_DRAW							; 3
 	LDA (OB_1),Y							; 5
 	STA OB_1_DRAW							; 3
-	PLA												; 4
-	TAY												; 2
+	NANO_STACK_PUL "Y"				; 2
 
 	; longest path
-	;		52 cycles
+	;		45 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 71
-	; 8 cycles remaining
+	; = 61
+	; 15 cycles remaining
 
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
