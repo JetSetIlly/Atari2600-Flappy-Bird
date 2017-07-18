@@ -83,9 +83,9 @@ VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 _SLEEP_TABLE_JMP				ds 2
 _MULTI_COUNT_STATE			ds 1
 _STATE_INPT4						ds 1
-_NANO_STACK							ds 1
-
 STATE_SWCHB							ds 1
+
+SCRATCH									ds 1	; general purpose storage
 
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 BIRD_VPOS								ds 1	; between BIRD_HIGH and BIRD_LOW
@@ -254,8 +254,8 @@ OBSTACLES			HEX 25 35 45 55 65 75
 OBSTACLES_LEN	= 6
 
 ; list of branches
-; note that we test for branch on the odd scanlines of the play area so these values should be odd
-BRANCHES			HEX 19 27 31 39 45 59 71
+; note that we test for branch on the even scanlines of the play area so these values should be even
+BRANCHES			HEX 18 26 30 38 44 58 70
 BRANCHES_LEN	= 7
 
 ; flight patterns
@@ -852,6 +852,7 @@ game_vblank_player_sprite
 ; GAME - VBLANK - END
 
 game_vblank_end SUBROUTINE game_vblank_end
+	; position sprites
 	LDA BIRD_HPOS
 	FINE_POS_SCREEN RESP0
 	LDA BIRD_HPOS
@@ -1020,8 +1021,8 @@ game_play_area SUBROUTINE game_play_area
 
 	; prepare for loop
 
-	LDX #VISIBLE_LINES_PLAYAREA
-	LDY #SPRITE_LINES
+	LDY #VISIBLE_LINES_PLAYAREA
+	LDX #SPRITE_LINES
 
 	; loop alternates between .display_bird and .display_obstacle starting with the latter
 
@@ -1048,36 +1049,29 @@ game_play_area SUBROUTINE game_play_area
 
 .precalc_sprite
 	; if we're at scan line number BIRD_VPOS (ie. where the bird is) - turn on the sprite
-	CPX BIRD_VPOS										; 2
-	BCS .precalc_sprite_done				; 2/3
-	TYA															; 2
-	BMI .precalc_sprite_done				; 2/3
-	LDA (SPRITE_WINGS_ADDRESS),Y		; 5
-	STA WINGS_DRAW									; 3 
-	LDA (SPRITE_HEAD_ADDRESS),Y			; 5
-	STA HEAD_DRAW										; 3 
-	DEY															; 2
+	CPY BIRD_VPOS									; 2
+	BCS .precalc_sprite_done			; 2/3
+	TXA														; 2
+	BMI .precalc_sprite_done			; 2/3
+	STY SCRATCH										; 3
+	TAY														; 2
+	LDA (SPRITE_WINGS_ADDRESS),Y	; 5
+	STA WINGS_DRAW								; 3 
+	LDA (SPRITE_HEAD_ADDRESS),Y		; 5
+	STA HEAD_DRAW									; 3 
+	DEX														; 2
+	LDY SCRATCH										; 3
 .precalc_sprite_done
-
-	; precalculate branch placement in time for next .display_obstacle cycle
-.precalc_branch
-	LDA #TREE_NUSIZ_VAL				; 3
-	CPX OB_1_BRANCH						; 3
-	BNE .precalc_branch_done	; 2/3
-	LDA #BRANCH_NUSIZ_VAL			; 3
-.precalc_branch_done
-	STA OB_1_NUSIZ						; 3
 
 	JMP .next_scanline				; 3
 
 	; maximum 76 cycles between WSYNC
 	; longest path
-	;   58 cycles
+	;   52 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 66
-	; 2 cycles remaining
-
+	; = 68
+	; 8 cycles remaining
 
 	; EVEN NUMBERED SCANLINES
 .display_obstacle
@@ -1098,27 +1092,34 @@ game_play_area SUBROUTINE game_play_area
 	;		1 cycles until end of HBLANK
 
 .precalc_obstacles
-	NANO_STACK_TXY						; 6
 	LDA (OB_0),Y							; 5
 	STA OB_0_DRAW							; 3
 	LDA (OB_1),Y							; 5
 	STA OB_1_DRAW							; 3
-	NANO_STACK_PUL "Y"				; 2
+
+	; precalculate branch placement in time for next .display_obstacle cycle
+.precalc_branch
+	LDA #TREE_NUSIZ_VAL				; 3
+	CPY OB_1_BRANCH						; 3
+	BNE .precalc_branch_done	; 2/3
+	LDA #BRANCH_NUSIZ_VAL			; 3
+.precalc_branch_done
+	STA OB_1_NUSIZ						; 3
 
 	; longest path
-	;		45 cycles
+	;		61 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
 	; = 61
-	; 15 cycles remaining
+	; 9 cycles remaining
 
 .next_scanline
 	; decrement current scanline - go to overscan kernel if we have reached zero
-	DEX												; 2
+	DEY												; 2
 	BEQ swamp									; 2/3
 
 	; interlace sprite and obstacle drawing
-	TXA												; 2
+	TYA												; 2
 	AND #%00000001						; 2
 	BEQ .display_obstacle	  	; 2/3
 	JMP .display_bird					; 3
@@ -1154,6 +1155,7 @@ swamp SUBROUTINE swamp
 	STA HMOVE
 
 	; disable obstacles - we don't want the "trees" to extend into the forest swamp
+	LDA #0
 	STA ENAM0
 	STA ENAM1
 

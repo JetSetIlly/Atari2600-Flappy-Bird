@@ -623,68 +623,6 @@ POS_SCREEN_CYCLES = 11
 	ENDM
 
 ; -----------------------------------
-; NANO STACK ROUTINES
-
-; 1 byte "stack" for those times where full stack manipulation is too expensive
-; just make sure that _NANO_STACK isn't clobbered between calls to PSH and PUL
-
-	MAC NANO_STACK_PSH
-		; require 8bit memory address labelled _NANO_STACK
-		; uses 2 cycles
-		IF {1} != "A" && {1} != "X" && {1} != "Y" 
-			ECHO "MACRO ERROR: 'NANO_STACK_PSH': {1} must be A, X, or Y"
-			ERR
-		ENDIF
-
-		IF {1} == "A"
-			STA _NANO_STACK
-		ENDIF
-		IF {1} == "X"
-			STX _NANO_STACK
-		ENDIF
-		IF {1} == "Y"
-			STY _NANO_STACK
-		ENDIF
-	ENDM
-
-	MAC NANO_STACK_PUL
-		; require 8bit memory address labelled _NANO_STACK
-		; uses 2 cycles
-		IF {1} != "A" && {1} != "X" && {1} != "Y" 
-			ECHO "MACRO ERROR: 'NANO_STACK_PUL': {1} must be A, X, or Y"
-			ERR
-		ENDIF
-
-		IF {1} == "A"
-			LDA _NANO_STACK
-		ENDIF
-		IF {1} == "X"
-			LDX _NANO_STACK
-		ENDIF
-		IF {1} == "Y"
-			LDY _NANO_STACK
-		ENDIF
-	ENDM
-
-	MAC NANO_STACK_TXY
-		; require 8bit memory address labelled _NANO_STACK
-		; clobbers A
-		; uses 6 cycles
-		NANO_STACK_PSH "Y"
-		TXA
-		TAY
-	ENDM
-
-	MAC NANO_STACK_TYX
-		; require 8bit memory address labelled _NANO_STACK
-		; clobbers A
-		; uses 6 cycles
-		NANO_STACK_PSH "X"
-		TYA
-		TAX
-	ENDM
-
-; -----------------------------------
 ; OTHER (REFERENCE) ROUTINES
 
 	MAC __MULT_3
