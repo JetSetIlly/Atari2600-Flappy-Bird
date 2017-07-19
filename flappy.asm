@@ -148,6 +148,8 @@ HISCORE								ds 1
 DIGIT_ADDRESS_0				ds 2
 DIGIT_ADDRESS_1				ds 2
 
+	; DASM directive - echo number of bytes left in RAM
+	ECHO "----",($100 - *) , "bytes of RAM left"
 
 ; ----------------------------------
 ; DATA - DATA / OBSTACLE DATA, ETC.
