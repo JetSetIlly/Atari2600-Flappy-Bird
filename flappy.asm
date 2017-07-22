@@ -54,7 +54,8 @@ SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_DIGITS_SIZE
 
 ; start position at start of game 
 BIRD_VPOS_INIT					=	BIRD_HIGH / 4 * 3
-BIRD_HPOS_INIT					=	$0C
+BIRD_HPOS_INIT					=	$00
+BIRD_HPOS_PLAY_POS			=	$0C
 
 
 ; play state -- death states are all negative
@@ -84,13 +85,15 @@ VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 
+; access _scratch* variables through local "shadow" names only
+; that way, you can better monitor unfortunate memory reuse
+_scratchA								ds 1
+
 ; variables beginning with _ are required by routines in vcs_extra.h
 _SLEEP_TABLE_JMP				ds 2
 _MULTI_COUNT_STATE			ds 1
 _STATE_INPT4						ds 1
 STATE_SWCHB							ds 1
-
-SCRATCH									ds 1	; general purpose storage
 
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 BIRD_VPOS								ds 1	; between BIRD_HIGH and BIRD_LOW
@@ -638,44 +641,47 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 ; GAME - VBLANK - DEATH - COLLISION
 
 game_vblank_death_collision SUBROUTINE game_vblank_death_collision
-	; flip collision animation on six count
-	MULTI_COUNT_SIX_CMP
-	BEQ .six_cnt
-.non_six_cnt
+	; update display elements every three frames
+	; note that we do all updating on the same frame, unlike during PLAY_STATE_PLAY
+	; where we update different elements (sprite, foliage) on different frames
+	MULTI_COUNT_THREE_CMP 0
+	BEQ .update_display_elements
+	JMP game_vblank_end
+
+.update_display_elements
+	; alter wing position - simulates furious flapping
+	LDA SPRITE_WINGS_ADDRESS
+	CMP #<WINGS_UP
+	BEQ .use_wings_flat
+	CMP #<WINGS_FLAT
+	BEQ .use_wings_down
+.use_wings_up
 	LDA #<WINGS_UP
 	STA SPRITE_WINGS_ADDRESS
-	JMP .done_six_cnt
-.six_cnt
+	JMP .wings_updated
+.use_wings_flat
+	LDA #<WINGS_FLAT
+	STA SPRITE_WINGS_ADDRESS
+	JMP .wings_updated
+.use_wings_down
 	LDA #<WINGS_DOWN
 	STA SPRITE_WINGS_ADDRESS
-.done_six_cnt
+	FOLIAGE_ANIMATION 0
+.wings_updated
 
-	MULTI_COUNT_TWO_CMP
-	BNE .odd_scanlines
-
+	; propel bird forward
 	LDA BIRD_HPOS
 	CLC
 	ADC #DEATH_COLLISION_SPEED
 	STA BIRD_HPOS
 
-	; alter position (FLY FRAME is a 2's complement negative so we can add)
+	; apply flight pattern and check for drowning state
 	APPLY_FLIGHT_PATTERN
-
-	; we don't want BIRD_VPOS to fall below BIRD_LOW
 	CMP #BIRD_LOW
 	BCC	.end_death_collision
 	STA BIRD_VPOS
-
 	UPDATE_FLIGHT_PATTERN
-	JMP game_vblank_end
 
-.odd_scanlines
-	MULTI_COUNT_THREE_CMP 0
-	BPL .update_foliage
-	JMP game_vblank_end
-
-.update_foliage
-	FOLIAGE_ANIMATION 0
 	JMP game_vblank_end
 
 .end_death_collision
@@ -777,6 +783,15 @@ game_vblank_collisions
 ; GAME - VBLANK - PLAY - UPDATE BIRD SPRITE
 
 game_vblank_player_sprite
+	; move bird towards play position if it's not there already
+	LDA BIRD_HPOS
+	CMP #BIRD_HPOS_PLAY_POS
+	BEQ .hpos_done
+	CLC
+	ADC #1		; not bothering to use FINE_POS_MOVE_RIGHT
+	STA BIRD_HPOS
+.hpos_done
+
 	DISCREET_TRIGGER_PLAYER0
 	BMI .process_flight_pattern
 
@@ -975,8 +990,8 @@ foliage SUBROUTINE foliage
 	SEC
 	SBC #$1
 
-	DEY												; 2
-	BEQ game_play_area				; 2/3
+	DEY													; 2
+	BEQ game_play_area_prepare	; 2/3
 
 	STA WSYNC
 	STA HMOVE
@@ -986,7 +1001,7 @@ foliage SUBROUTINE foliage
 ; ----------------------------------
 ; GAME - DISPLAY KERNEL - PLAY AREA
 
-game_play_area SUBROUTINE game_play_area
+game_play_area_prepare SUBROUTINE game_play_area_prepare
 	; playfield priority - background trees behind obstacles
 	LDA #%00000000
 	STA CTRLPF
@@ -1035,7 +1050,10 @@ game_play_area SUBROUTINE game_play_area
 	LDY #VISIBLE_LINES_PLAYAREA
 	LDX #SPRITE_LINES
 
-	; loop alternates between .display_bird and .display_obstacle starting with the latter
+game_play_area SUBROUTINE game_play_area
+.YSTATE = _scratchA
+
+	; loop alternates between .display_bird and .display_obstacle starting with .display_bird
 	; Y register contains the number of VISIBLE_LINES_PLAYAREA remaining
 	; X register contains number of SPRITE_LINES remaining
 
@@ -1060,14 +1078,14 @@ game_play_area SUBROUTINE game_play_area
 	BCS .precalc_sprite_done			; 2/3
 	TXA														; 2
 	BMI .precalc_sprite_done			; 2/3
-	STY SCRATCH										; 3
+	STY .YSTATE										; 3
 	TAY														; 2
 	LDA (SPRITE_WINGS_ADDRESS),Y	; 5
 	STA WINGS_DRAW								; 3 
 	LDA (SPRITE_HEAD_ADDRESS),Y		; 5
 	STA HEAD_DRAW									; 3 
 	DEX														; 2
-	LDY SCRATCH										; 3
+	LDY .YSTATE										; 3
 .precalc_sprite_done
 
 	JMP .next_scanline				; 3
