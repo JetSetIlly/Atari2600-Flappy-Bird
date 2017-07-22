@@ -5,15 +5,20 @@
 	include vcs_extra.h
 
 ; ----------------------------------
-; DATA - TUNABLES
+; DATA - COLOURS
 
 ; colours
+BIRD_COLOR							= $00
+
+FOLIAGE_BACKGROUND			=	$D2
+FOLIAGE_COLOR						= $D0
+
 FOREST_BACKGROUND				=	$D2
 FOREST_COLOR						= $E0
-BIRD_COLOR							= $00
-FOLIAGE_COLOR						= $D0
+
 SWAMP_BACKGROUND				= $B0
 SWAMP_COLOR							= $B2
+
 SCORING_BACKGROUND			= $00
 SCORE_COLOR							= $0E
 HISCORE_COLOR						= $F6
@@ -441,7 +446,7 @@ title_screen SUBROUTINE title_screen
 
 .vblank
 	VBLANK_KERNEL_SETUP
-	DISCREET_TRIGGER_PLAYER1
+	DISCREET_TRIGGER_PLAYER0
 	BPL .end_title_screen
 	LDX #DISPLAY_SCANLINES
 	VBLANK_KERNEL_END
@@ -461,7 +466,7 @@ title_screen SUBROUTINE title_screen
 
 
 ; ----------------------------------
-; GAME STATE INITIALISATION
+; GAME - INITIALISATION
 
 game_state_init SUBROUTINE game_state_init
 	; initialise most significant byte of indirect addresses
@@ -503,7 +508,7 @@ game_state_init SUBROUTINE game_state_init
 
 
 ; ----------------------------------
-; GAME RESTART
+; GAME - RESTART
 
 	; registers that are reset in game_restart subroutine are altered during gameplay
 	; and need to be reset on game restart
@@ -511,7 +516,7 @@ game_restart SUBROUTINE game_restart
 	; clear any active collisions
 	STA CXCLR
 
-	DISCREET_TRIGGER_PLAYER1
+	DISCREET_TRIGGER_PLAYER0
 
 	MULTI_COUNT_SETUP
 	; TODO: use flight pattern depending on switch
@@ -559,16 +564,13 @@ game_restart SUBROUTINE game_restart
 	; place obstacle 0 (missile 1) at screen middle
 
 
-; ----------------------------------
-; GAME - VSYNC
-
-game_vsync SUBROUTINE game_vsync
-	VSYNC_KERNEL_BASIC
 	
 ; ----------------------------------
-; GAME - VBLANK
+; GAME - VSYNC / VBLANK
 
+game_vsync
 game_vblank SUBROUTINE game_vblank
+	VSYNC_KERNEL_BASIC
 	VBLANK_KERNEL_SETUP
 
 	LDX PLAY_STATE
@@ -585,10 +587,10 @@ game_vblank SUBROUTINE game_vblank
 
 	
 ; ----------------------------------
-; GAME - VBLANK - READY
+; GAME - VBLANK - READY STATE
 
 game_vblank_ready SUBROUTINE game_vblank_ready
-	DISCREET_TRIGGER_PLAYER1
+	DISCREET_TRIGGER_PLAYER0
 	BMI .continue_ready_state
 
 .end_ready_state
@@ -694,7 +696,7 @@ game_vblank_play SUBROUTINE game_vblank_play
 	JMP game_vblank_player_sprite
 
 ; -------------
-; GAME - VBLANK - PLAY - FOLIAGE
+; GAME - VBLANK - PLAY - UPDATE FOLIAGE
 game_vblank_foliage
 	FOLIAGE_ANIMATION 1
 	JMP game_vblank_end
@@ -772,10 +774,10 @@ game_vblank_collisions
 
 	
 ; -------------
-; GAME - VBLANK - PLAY - SPRITE
+; GAME - VBLANK - PLAY - UPDATE BIRD SPRITE
 
 game_vblank_player_sprite
-	DISCREET_TRIGGER_PLAYER1
+	DISCREET_TRIGGER_PLAYER0
 	BMI .process_flight_pattern
 
 	; trigger is being pressed
@@ -851,7 +853,7 @@ game_vblank_player_sprite
 
 
 ; ----------------------------------
-; GAME - VBLANK - END
+; GAME - VBLANK - END (PREPARE DISPLAY KERNEL)
 
 game_vblank_end SUBROUTINE game_vblank_end
 	; position sprites
@@ -862,12 +864,20 @@ game_vblank_end SUBROUTINE game_vblank_end
 	ADC #$07
 	FINE_POS_SCREEN RESP1
 
+	; progress & position obstacles
+	; (note that we're performing the progression every frame)
+	LDA PLAY_STATE
+	CMP #PLAY_STATE_PLAY
+	BNE .end_obstacle_progression
+	FINE_POS_MOVE_LEFT OB_0_HPOS, #1
+	FINE_POS_MOVE_LEFT OB_1_HPOS, #1
+.end_obstacle_progression
 	LDA OB_0_HPOS
 	FINE_POS_SCREEN RESM0
 	LDA OB_1_HPOS
 	FINE_POS_SCREEN RESM1
 
-	; setup display kernel
+	; setup display kernel (for foliage area)
 
 	; do horizontal movement
 	; note that move registers need to be set up every frame before this
@@ -885,17 +895,16 @@ game_vblank_end SUBROUTINE game_vblank_end
 	STA CTRLPF
 
 	; foliage colours
-	LDA #FOREST_BACKGROUND
+	LDA #FOLIAGE_BACKGROUND
 	STA	COLUBK
 	LDA #FOLIAGE_COLOR
 	STA COLUPF
 
-	; X register will contain the current scanline for the duration of the display kernal
-	; starting with VISIBLE_LINES_FOLIAGE and then VISIBLE_LINES_PLAYAREA, loaded later
-	LDX	#VISIBLE_LINES_FOLIAGE
-
-	; Y register keeps pointer to next foliage data to stuff into playfield
-	LDY FOLIAGE_SEED
+	; prepare index registers
+	; Y register will count the number of lines in the foliage area of the display
+	; X register keeps pointer to next foliage data to stuff into playfield
+	LDY	#VISIBLE_LINES_FOLIAGE
+	LDX FOLIAGE_SEED
 
 	; reset all movmement registers - we'll be triggering HMOVE every scanline and we
 	; don't want objects flying all over the screen. move registers will be reset
@@ -910,19 +919,17 @@ game_vblank_end SUBROUTINE game_vblank_end
 
 
 ; ----------------------------------
-; GAME - DISPLAY - FOLIAGE
+; GAME - DISPLAY KERNEL - FOLIAGE
 
 foliage SUBROUTINE foliage
 
 	; A should be zero after VBLANK_KERNEL_END
 
-	; X register contains the number of VISIBLE_LINES_FOLIAGE remaining
+	; Y register contains the number of VISIBLE_LINES_FOLIAGE remaining
 
-	; Y register contains the FOLIAGE_SEED value
-	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-	; into FOLIAGE space to set the playfield values
+	; X register contains the FOLIAGE_SEED value
 	;
-	; we increase Y after every time we access it (after every change to the playfield - 3 per cycle)
+	; we increase X after every time we access it (after every change to the playfield - 3 per cycle)
 	; in this subroutine: there are VISIBLE_LINES_FOLIAGE
 	; scanlines in this part of the display; the main body of the routine is run every
 	; VISIBLE_LINES_PER_FOLIAGE; so:
@@ -943,18 +950,18 @@ foliage SUBROUTINE foliage
 	; we're going to clobber the accumulator but that's okay, we're
 	; going to reset it after setting the playfield
 
-	LDA FOLIAGE,Y
+	LDA FOLIAGE,X
 	STA PF0
-	INY
-	LDA FOLIAGE,Y
+	INX
+	LDA FOLIAGE,X
 	STA PF1
-	INY
-	LDA FOLIAGE,Y
+	INX
+	LDA FOLIAGE,X
 	STA PF2
-	INY
+	INX
 
 	; start drawing obstacles if we're halfway through the foliage area
-	CPX #VISIBLE_LINES_FOLIAGE / 2
+	CPY #VISIBLE_LINES_FOLIAGE / 2
 	BNE .reset_foliage_block_count
 	LDA #$2
 	STA ENAM0
@@ -968,7 +975,7 @@ foliage SUBROUTINE foliage
 	SEC
 	SBC #$1
 
-	DEX												; 2
+	DEY												; 2
 	BEQ game_play_area				; 2/3
 
 	STA WSYNC
@@ -977,7 +984,7 @@ foliage SUBROUTINE foliage
 
 
 ; ----------------------------------
-; GAME - DISPLAY - PLAY AREA
+; GAME - DISPLAY KERNEL - PLAY AREA
 
 game_play_area SUBROUTINE game_play_area
 	; playfield priority - background trees behind obstacles
@@ -1012,6 +1019,8 @@ game_play_area SUBROUTINE game_play_area
 	STA HMOVE
 
 	; set forest for entire play area
+	LDA #FOREST_BACKGROUND
+	STA	COLUBK
 	LDA #FOREST_COLOR
 	STA COLUPF
 	PLA
@@ -1027,12 +1036,8 @@ game_play_area SUBROUTINE game_play_area
 	LDX #SPRITE_LINES
 
 	; loop alternates between .display_bird and .display_obstacle starting with the latter
-
-	; X register contains the number of VISIBLE_LINES_PLAYAREA remaining
-
-	; Y register contains number of SPRITE_LINES remaining
-	; NOTE: we need to use Y register because we'll be performing a post-indexed indirect address 
-	; to set the sprite line
+	; Y register contains the number of VISIBLE_LINES_PLAYAREA remaining
+	; X register contains number of SPRITE_LINES remaining
 
 	; ODD NUMBERED SCANLINES
 .display_bird
@@ -1128,7 +1133,7 @@ game_play_area SUBROUTINE game_play_area
 
 
 ; ----------------------------------
-; GAME - DISPLAY - SWAMP
+; GAME - DISPLAY KERNEL - SWAMP
 
 swamp SUBROUTINE swamp
 	; we've arrived here via the BEQ swamp call above in the game_play_area.next_scanline routine above
@@ -1195,7 +1200,7 @@ swamp SUBROUTINE swamp
 
 
 ; ----------------------------------
-; GAME - DISPLAY - SCORING
+; GAME - DISPLAY KERNEL - SCORING
 scoring SUBROUTINE scoring
 	STA WSYNC
 	LDA #0
@@ -1333,14 +1338,6 @@ game_overscan SUBROUTINE game_overscan
 	LDY #$0
 	STY BRANCH_SEED
 .next_branch
-
-	; progress obstacles
-	LDA PLAY_STATE
-	CMP #PLAY_STATE_PLAY
-	BNE .end_obstacle_progression
-	FINE_POS_MOVE_LEFT OB_0_HPOS, #1
-	FINE_POS_MOVE_LEFT OB_1_HPOS, #1
-.end_obstacle_progression
 
 	MULTI_COUNT_UPDATE
 

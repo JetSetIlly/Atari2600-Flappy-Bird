@@ -290,7 +290,7 @@ POS_SCREEN_CYCLES = 11
 
 ; -----------------------------------
 ; USER INPUT
-	MAC DISCREET_TRIGGER_PLAYER1
+	MAC DISCREET_TRIGGER_PLAYER0
 		; return value: BPL on trigger, BMI on no trigger
 		LDX INPT4
 		BMI .done					; INPT4 is positive if trigger is pressed 
