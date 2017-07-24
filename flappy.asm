@@ -26,9 +26,10 @@ HISCORE_COLOR						= $F6
 ; ----------------------------------
 ; DATA - CONSTANTS
 
-; screen boundaries for bird sprite
-BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
-BIRD_LOW				=	$0C
+; values for CTRLPF
+CTRLPF_FOLIAGE  = %00100100
+CTRLPF_PLAYAREA = %00100000
+CTRLPF_SWAMP    = %00100100
 
 ; death rates
 DEATH_COLLISION_SPEED	= $02 ; speed at which player sprite moves foward during death collision
@@ -72,13 +73,17 @@ PLAY_STATE_DEATH_DROWN	= $FE
 ; * and another one because DIGIT_LINES breaks on -1 not 0 (BMI instead of BEQ)
 ;
 ; note that we don't loop the swamp WSYNCs because there are so few and we'll
-; be doing something useful during them
+; be doing something useful and different on each line
 ; care should be taken to update this value, if we increase the number of WSYNCs
 VISIBLE_LINES_FOLIAGE			= $20
 VISIBLE_LINES_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
-VISIBLE_LINES_SWAMP				= $03
+VISIBLE_LINES_SWAMP				= $04
 VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
+
+; screen boundaries for bird sprite
+BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
+BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
 
 ; ----------------------------------
 ; DATA - RAM
@@ -182,6 +187,8 @@ HEADS_TABLE			.byte <HEAD_GIRL_A, <HEAD_BOY_A, <HEAD_GIRL_B, <HEAD_BOY_B
 NUM_HEADS				= 4
 
 SPRITE_LINES		=	7
+
+SPLASH_FRAME_1A	HEX 42 24
 
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
@@ -352,10 +359,19 @@ ALWAYS = 0
 .no_store_index
 	ENDM
 
+CHECK_BIRD_HIGH = 1
+NO_CHECK_BIRD_HIGH = 0
 	MAC UPDATE_FLIGHT_PATTERN
+		; {1} == CHECK_BIRD_HIGH || NO_CHECK_BIRD_HIGH
 		; requires PATTERN_INDEX in Y
 		; clobbers A
 		; alters Y and PATTERN_INDEX
+		IF {1} == CHECK_BIRD_HIGH
+			CMP #BIRD_HIGH
+			BCC .store_vpos
+			LDA #BIRD_HIGH
+		ENDIF
+.store_vpos
 		STA BIRD_VPOS
 		INY
 		TYA
@@ -612,10 +628,10 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	MULTI_COUNT_THREE_CMP 0
 	BNE .continue_drowning
 
-	LDA BIRD_HPOS
-	CLC
-	ADC #DEATH_DROWNING_SPEEED
-	STA BIRD_HPOS
+	;LDA BIRD_HPOS
+	;CLC
+	;ADC #DEATH_DROWNING_SPEEED
+	;STA BIRD_HPOS
 
 	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
 	LDX PATTERN_INDEX
@@ -666,21 +682,21 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 .use_wings_down
 	LDA #<WINGS_DOWN
 	STA SPRITE_WINGS_ADDRESS
-	FOLIAGE_ANIMATION 0
 .wings_updated
 
-	; propel bird forward
-	LDA BIRD_HPOS
-	CLC
-	ADC #DEATH_COLLISION_SPEED
-	STA BIRD_HPOS
+	FOLIAGE_ANIMATION 0
 
 	; apply flight pattern and check for drowning state
 	APPLY_FLIGHT_PATTERN
 	CMP #BIRD_LOW
 	BCC	.end_death_collision
-	STA BIRD_VPOS
-	UPDATE_FLIGHT_PATTERN
+	UPDATE_FLIGHT_PATTERN CHECK_BIRD_HIGH
+
+	; propel bird forward - after drowning check
+	LDA BIRD_HPOS
+	CLC
+	ADC #DEATH_COLLISION_SPEED
+	STA BIRD_HPOS
 
 	JMP game_vblank_end
 
@@ -861,7 +877,7 @@ game_vblank_player_sprite
 	LDA #BIRD_HIGH
 
 .update_flight_pattern_index
-	UPDATE_FLIGHT_PATTERN
+	UPDATE_FLIGHT_PATTERN NO_CHECK_BIRD_HIGH
 
 .fly_end
 	; fall through
@@ -887,11 +903,13 @@ game_vblank_end SUBROUTINE game_vblank_end
 	FINE_POS_MOVE_LEFT OB_0_HPOS, #1
 	FINE_POS_MOVE_LEFT OB_1_HPOS, #1
 .end_obstacle_progression
-	LDA OB_0_HPOS
-	FINE_POS_SCREEN RESM0
 	LDA OB_1_HPOS
 	FINE_POS_SCREEN RESM1
+	LDA OB_0_HPOS
+	FINE_POS_SCREEN RESM0
 
+
+game_vblank_end_display_prep SUBROUTINE game_vblank_end_display_prep
 	; setup display kernel (for foliage area)
 
 	; do horizontal movement
@@ -906,7 +924,7 @@ game_vblank_end SUBROUTINE game_vblank_end
 	; obstacles already turned off - will be turned on again halfway through foliage subroutine
 
 	; playfield priority - foliage in front of obstacles
-	LDA #%00000100
+	LDA #CTRLPF_FOLIAGE
 	STA CTRLPF
 
 	; foliage colours
@@ -1003,7 +1021,7 @@ foliage SUBROUTINE foliage
 
 game_play_area_prepare SUBROUTINE game_play_area_prepare
 	; playfield priority - background trees behind obstacles
-	LDA #%00000000
+	LDA #CTRLPF_PLAYAREA
 	STA CTRLPF
 
 	; we want to stuff the playfield with new data as quickly as possible
@@ -1154,39 +1172,35 @@ game_play_area SUBROUTINE game_play_area
 ; GAME - DISPLAY KERNEL - SWAMP
 
 swamp SUBROUTINE swamp
-	; we've arrived here via the BEQ swamp call above in the game_play_area.next_scanline routine above
+	; we've arrived here via the "BEQ swamp" call above in the .next_scanline of the game_play_area routine above.
 	; the last loop in the game_play_area loop before the successful branching would have been the .display_bird
 	; loop. so, the available number of cycles left before the end of the scanline is:
 
-	; (note the fewer cycles used for ".next_scanline" - caused by the branching to this swamp subroutine)
-
-	; maximum 76 cycles between WSYNC
 	; longest path
-	;   58 cycles
-	; + 5 for ".next_scanline"
+	;   52 cycles
+	; + 5 for ".next_scanline" (fewer than normal because of the succesful "BEQ swamp")
 	; + 3 for WSYNC
-	; = 66
-	; 10 cycles remaining
+	; = 60
+	; 16 cycles remaining
 
-	; (also note that this is the number of cycles left after the longest path, which occurs when the bird
-	; is at it's lowest point. ie. using extra cycle might not be noticable depending on the bird's position)
-
+.draw_swamp
+	; preload registers so that we're not wasting cycles in the HBLANK
 	LDY FOLIAGE_SEED			; 3
 	LDX FOLIAGE,Y					; 4
-
-	; 3 cycles remaining until end of scanline
+	LDA #0
+	LDY #SWAMP_BACKGROUND
 
 	STA WSYNC
 	STA HMOVE
 
 	; disable obstacles - we don't want the "trees" to extend into the forest swamp
-	LDA #0
+	; (A register preloaded)
 	STA ENAM0
 	STA ENAM1
 
 	; define the forest swamp playfield once per frame
-	LDA #SWAMP_BACKGROUND
-	STA COLUBK
+	; (Y register preloaded)
+	STY COLUBK
 
 	; change colour of playfield to simulate movement
 	; we'll change background colour in the next HBLANK
@@ -1194,16 +1208,15 @@ swamp SUBROUTINE swamp
 	STA COLUPF
 
 	; draw swap the same as the last line of the foliage
+	; (X register preloaded)
 	STX PF0
 	STX PF1
 	STX PF2
 
-	; an extra line of swamp - so when we turn off the sprites below
-	; we do so in the HBLANK
 	STA WSYNC
 	STA HMOVE
 
-	; turn off sprites
+	; turn off sprites - delaying a scanline 
 	LDA #$00
 	STA GRP0
 	STA GRP1
