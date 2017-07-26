@@ -4,6 +4,8 @@
 ;	0.2 - 09/07/2017 - fine positioning routines
 
 NULL = 0
+TRUE = 1
+FALSE = 0
 
 ; -----------------------------------
 ; DISPLAY CONSTANTS
@@ -254,6 +256,9 @@ POS_SCREEN_CYCLES = 11
 		; {position store} {amount}
 		; amount value should be positive
 		; {position store} is left in the accumulator
+
+		; NOTE UNFINISHED
+
 		LDA {1}
 		CLC
 		ADC {2}
@@ -266,18 +271,33 @@ POS_SCREEN_CYCLES = 11
 	ENDM
 
 	MAC FINE_POS_MOVE_LEFT
-		; {position store} {amount}
+		; {position store} {amount} {loop (boolean)}
 		; amount value should be positive
 		; {position store} is left in the accumulator
+		IF {3} != TRUE && {3} != FALSE
+			ECHO "MACRO ERROR: 'FINE_POS_MOVE_LEFT': {3} must be TRUE or FALSE"
+			ERR
+		ENDIF
+
 		LDA {1}
 		SEC
 		SBC {2}
-		CMP #160
-		BCC .fine_pos_move_done
-		CLC
-		ADC #160
+		IF {3} == TRUE
+			CMP #160
+			BCC .fine_pos_move_done
+			CLC
+			ADC #160
 .fine_pos_move_done
-		STA {1}
+			STA {1}
+		ENDIF
+
+		IF {3} == FALSE
+			CMP #160
+			BCC .fine_pos_move_done
+			LDA #0
+.fine_pos_move_done
+			STA {1}
+		ENDIF
 	ENDM
 
 	; FINE_POS_ACTIVATE * FINE_POS_END are provided for completeness - in many projects

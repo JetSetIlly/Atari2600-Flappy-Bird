@@ -297,14 +297,39 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 
 ; ----------------------------------
 ; MACROS
+	MAC POSITION_BIRD_SPRITE
+		LDA BIRD_HPOS
+		FINE_POS_SCREEN RESP0
+		LDA BIRD_HPOS
+		CLC
+		ADC #$07
+		FINE_POS_SCREEN RESP1
+	ENDM
 
+
+	MAC PROGRESS_POSITION_OBSTACLES
+		; {1} boolean - loop or no loop
+.progress_obstacles
+		FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, {1}
+		FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, {1}
+
+.position_obstacles
+		LDA OB_0_HPOS
+		FINE_POS_SCREEN RESM0
+		LDA OB_1_HPOS
+		FINE_POS_SCREEN RESM1
+	ENDM
+
+
+WITH_BRANCH = TRUE
+NO_BRANCH = FALSE
 	MAC NEW_OBSTACLE
-		; {1} == 0 or 1
+		; {1} == WITH_BRANCH || NO_BRANCH
 		; clobbers A and X
 		; alters OB_0 or OB_1
 
-		IF {1} != 0 && {1} != 1
-			ECHO "MACRO ERROR: 'NEW_OBSTACLE': {1} must be 0 OR 1"
+		IF {1} != WITH_BRANCH && {1} != NO_BRANCH
+			ECHO "MACRO ERROR: 'NEW_OBSTACLE': {1} must be WITH_BRANCH or NO_BRANCH"
 			ERR
 		ENDIF
 
@@ -313,11 +338,11 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 		CLC
 		ADC OBSTACLES,X
 
-		IF {1} == 0
+		IF {1} == NO_BRANCH
 			STA OB_0
 		ENDIF
 
-		IF {1} == 1
+		IF {1} == WITH_BRANCH
 			STA OB_1
 			LDX BRANCH_SEED
 			LDA BRANCHES,X
@@ -510,9 +535,9 @@ game_state_init SUBROUTINE game_state_init
 	LDA #$2
 	STA OBSTACLE_SEED
 	STA BRANCH_SEED
-	NEW_OBSTACLE 0
+	NEW_OBSTACLE FALSE
 	INC OBSTACLE_SEED
-	NEW_OBSTACLE 1
+	NEW_OBSTACLE TRUE
 
 	; initalise background trees
 	LDA FOREST_MID_0_INIT
@@ -584,7 +609,7 @@ game_restart SUBROUTINE game_restart
 
 	; position both obstacles inside the activision-border
 	FINE_POS_SCREEN_LEFT RESM0, OB_0_HPOS, 4, 0
-	FINE_POS_SCREEN_LEFT RESM0, OB_1_HPOS, 4, 0
+	FINE_POS_SCREEN_LEFT RESM1, OB_1_HPOS, 4, 0
 
 	; obstacle 0 starts moving immediately - obstacle 1 will begin moving later
 	LDA #1
@@ -592,7 +617,6 @@ game_restart SUBROUTINE game_restart
 	LDA #0
 	STA OB_1_SPEED 
 
-	; place obstacle 0 (missile 1) at screen middle
 
 
 
@@ -610,13 +634,15 @@ game_vblank SUBROUTINE game_vblank
 
 ; PLAY_STATE_PLAY
 ;							\----> main_triage ---> 1 . collisions	--\
-;									 /						 +--> 2 . sprite					---------> vblank end
-;									/							 \--> 3 . foliage			--/   /	  /
-; PLAY_STATE_APPROACH																			 /	 /
-;																													/		/
-; PLAY_STATE_COLLISION ----------------------------------/	 /
-;																														/
-; PLAY_STATE_DROWN ----------------------------------------/
+;									 /						 +--> 2 . sprite					---------> position sprites ---------> vblank end
+;									/							 \--> 3 . foliage			--/                                   /
+; PLAY_STATE_APPROACH																			                                 /
+;                                                                                         /
+; PLAY_STATE_READY --------------------------------------------------------------------- /
+;																																												/
+; PLAY_STATE_COLLISION --------------------------------------------------------------- /
+;																														                          /
+; PLAY_STATE_DROWN ------------------------------------------------------------------/ 
 
 	LDX PLAY_STATE
 	BEQ .far_jmp_play
@@ -625,12 +651,18 @@ game_vblank SUBROUTINE game_vblank
 	BEQ .far_jmp_approach
 
 	CPX #PLAY_STATE_COLLISION
-	BEQ game_vblank_death_collision
+	BEQ .far_jmp_collision
 
 	CPX #PLAY_STATE_DEATH_DROWN
-	BEQ game_vblank_death_drown
+	BEQ .far_jmp_drown
 
 	JMP game_vblank_ready
+
+.far_jmp_drown
+	JMP game_vblank_death_drown
+
+.far_jmp_collision
+	JMP game_vblank_death_collision
 
 .far_jmp_approach
 	JMP game_vblank_approach
@@ -643,14 +675,40 @@ game_vblank SUBROUTINE game_vblank
 ; GAME - VBLANK - READY STATE
 
 game_vblank_ready SUBROUTINE game_vblank_ready
+	; skip user input check unless bird is in position
+	LDA BIRD_HPOS
+	CMP #BIRD_HPOS_PLAY_POS
+	BNE .ready_state_triage
+
+	; check for user input
 	DISCREET_TRIGGER_PLAYER0
-	BMI .continue_ready_state
+	BMI .ready_state_triage
 
 .end_ready_state
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
+	JMP .continue_ready_state
+
+.ready_state_triage
+	MULTI_COUNT_THREE_CMP 1
+	BEQ .update_bird
+	BMI .continue_ready_state
+
+	FOLIAGE_ANIMATION 1
+	JMP .continue_ready_state
+
+.update_bird
+	; move bird towards play position if it's not there already
+	LDA BIRD_HPOS
+	CMP #BIRD_HPOS_PLAY_POS
+	BEQ .hpos_done
+	CLC
+	ADC #1		; not bothering to use FINE_POS_MOVE_RIGHT
+	STA BIRD_HPOS
+.hpos_done
 
 .continue_ready_state
+	POSITION_BIRD_SPRITE	
 	JMP game_vblank_end
 	
 
@@ -679,12 +737,14 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	STX BIRD_VPOS
 
 	FOLIAGE_ANIMATION 0
-
-.continue_drowning
-	JMP game_vblank_end
+	JMP .continue_drowning
 
 .drowning_end
 	JMP game_restart
+
+.continue_drowning
+	POSITION_BIRD_SPRITE
+	JMP game_vblank_end
 
 
 ; ----------------------------------
@@ -696,7 +756,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	; where we update different elements (sprite, foliage) on different frames
 	MULTI_COUNT_THREE_CMP 0
 	BEQ .update_display_elements
-	JMP game_vblank_end
+	JMP .continue_collision
 
 .update_display_elements
 	; alter wing position - simulates furious flapping
@@ -723,7 +783,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	; apply flight pattern and check for drowning state
 	APPLY_FLIGHT_PATTERN
 	CMP #BIRD_LOW
-	BCC	.end_death_collision
+	BCC	.enter_drowning_state
 	UPDATE_FLIGHT_PATTERN CHECK_BIRD_HIGH
 
 	; propel bird forward - after drowning check
@@ -732,10 +792,13 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	ADC #DEATH_COLLISION_SPEED
 	STA BIRD_HPOS
 
-	JMP game_vblank_end
+	JMP .continue_collision
 
-.end_death_collision
+.enter_drowning_state
 	DROWNING_PLAY_STATE
+
+.continue_collision
+	POSITION_BIRD_SPRITE
 	JMP game_vblank_end
 
 
@@ -743,7 +806,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 ; GAME - VBLANK - APPROACH
 
 game_vblank_approach SUBROUTINE game_vblank_approach
-	; if obstacle 0 has reaced middle of screen then
+	; if obstacle 0 has reached middle of screen then
 	; start obstacle 1 moving and change play state to PLAY_STATE_PLAY
 	LDA BIRD_HPOS
 	CMP #BIRD_HPOS_PLAY_POS
@@ -775,16 +838,16 @@ game_vblank_main_triage SUBROUTINE game_vblank_main_triage
 ; GAME - VBLANK - MAIN - FOLIAGE
 game_vblank_foliage
 	FOLIAGE_ANIMATION 1
-	JMP game_vblank_end
+	JMP game_vblank_position_sprites
 
 ; -------------
 ; GAME - VBLANK - MAIN - COLLISIONS / OBSTACLE RESET
 game_vblank_collisions SUBROUTINE game_vblank_collisions
 	; skip the collisions frame if we're not in PLAY_STATE_PLAY
 	LDA PLAY_STATE
-	BNE .jmp_vblank_end
+	BNE .done_vblank_collisions
 
-	; bird collision
+	; check for bird collision
 	BIT CXM0P
 	BMI .bird_collision
 	BVS .bird_collision
@@ -792,36 +855,24 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 	BMI .bird_collision
 	BVS .bird_collision
 
-	; reset obstacle gap / branch in activision-border
-	; we're comparing against three and less because we only run
-	; this "collision" vblank subroutine every three frames
-	LDA OB_0_HPOS
-	CMP #03
-	BCC .reset_obstacle_0
-	LDA OB_1_HPOS
-	CMP #03
-	BCC .reset_obstacle_1
-
-.jmp_vblank_end
-	JMP game_vblank_end
+	; reset obstacle gap / branch - comparing against three and less
+	; because we only make this check once every three frames and
+	; we don't want to miss the event
+	LDA #03
+	CMP OB_0_HPOS
+	BCS .reset_obstacle_0
+	CMP OB_1_HPOS
+	BCS .reset_obstacle_1
+	JMP game_vblank_position_sprites
 
 .reset_obstacle_0
 	; NOTE: no branch ornamentation for obstacle 0
-	NEW_OBSTACLE 0
-	JMP .score_obstacle
+	NEW_OBSTACLE NO_BRANCH
+	JMP game_vblank_position_sprites
 
 .reset_obstacle_1
-	NEW_OBSTACLE 1
-
-.score_obstacle
-	; increase score -- using decimal addition
-	SED
-	LDA SCORE
-	CLC
-	ADC #$1
-	STA SCORE
-	CLD
-	JMP game_vblank_end
+	NEW_OBSTACLE WITH_BRANCH
+	JMP game_vblank_position_sprites
 
 .bird_collision
 	; TODO: better collision handling
@@ -842,22 +893,14 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 
 	RESET_FLIGHT_PATTERN DEATH_SPIRAL
 
-	JMP game_vblank_end
+.done_vblank_collisions
+	JMP game_vblank_position_sprites
 
 	
 ; -------------
 ; GAME - VBLANK - MAIN - UPDATE BIRD SPRITE
 
 game_vblank_player_sprite SUBROUTINE game_vblank_player_sprite
-	; move bird towards play position if it's not there already
-	LDA BIRD_HPOS
-	CMP #BIRD_HPOS_PLAY_POS
-	BEQ .hpos_done
-	CLC
-	ADC #1		; not bothering to use FINE_POS_MOVE_RIGHT
-	STA BIRD_HPOS
-.hpos_done
-
 	DISCREET_TRIGGER_PLAYER0
 	BMI .process_flight_pattern
 
@@ -934,35 +977,34 @@ game_vblank_player_sprite SUBROUTINE game_vblank_player_sprite
 
 
 ; ----------------------------------
-; GAME - VBLANK - END (PREPARE DISPLAY KERNEL)
+; GAME - VBLANK - POSITION SPRITES / SCORING
 
-game_vblank_end SUBROUTINE game_vblank_end
-	; position sprites
+game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
+	POSITION_BIRD_SPRITE
+	PROGRESS_POSITION_OBSTACLES TRUE
+
+.scoring_check
 	LDA BIRD_HPOS
-	FINE_POS_SCREEN RESP0
-	LDA BIRD_HPOS
+	CMP OB_0_HPOS
+	BEQ .score_obstacle
+	CMP OB_1_HPOS
+	BEQ .score_obstacle
+	JMP game_vblank_end
+
+.score_obstacle
+	; increase score -- using decimal addition
+	SED
+	LDA SCORE
 	CLC
-	ADC #$07
-	FINE_POS_SCREEN RESP1
+	ADC #$1
+	STA SCORE
+	CLD
+	JMP game_vblank_end
 
-	; progress & position obstacles
-	; (note that we're performing the progression every frame)
-	LDA PLAY_STATE
-	BEQ .progress_obstacles
-	CMP #PLAY_STATE_APPROACH
-	BEQ .progress_obstacles
-	JMP .position_obstacles
 
-.progress_obstacles
-	FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED
-	FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED 
-
-.position_obstacles
-	LDA OB_0_HPOS
-	FINE_POS_SCREEN RESM0
-	LDA OB_1_HPOS
-	FINE_POS_SCREEN RESM1
-
+; ----------------------------------
+; GAME - VBLANK - END (PREPARE DISPLAY KERNEL)
+game_vblank_end SUBROUTINE game_vblank_end
 	; setup display kernel (for foliage area)
 
 	; do horizontal movement
