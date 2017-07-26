@@ -61,7 +61,8 @@ BIRD_HPOS_PLAY_POS			=	$0C
 
 ; play state -- death states are all negative
 PLAY_STATE_PLAY					= $00
-PLAY_STATE_READY				= $01
+PLAY_STATE_APPROACH			= $01
+PLAY_STATE_READY				= $02
 PLAY_STATE_COLLISION		= $FF
 PLAY_STATE_DEATH_DROWN	= $FE
 
@@ -138,6 +139,8 @@ OB_1								ds 2
 OB_1_BRANCH					ds 1
 OB_0_HPOS						ds 1
 OB_1_HPOS						ds 1
+OB_0_SPEED					ds 1
+OB_1_SPEED					ds 1
 
 ; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
 OB_0_DRAW						ds 1
@@ -453,7 +456,6 @@ NO_CHECK_BIRD_HIGH = 0
 setup SUBROUTINE setup
 	CLEAN_START
 
-
 ; ----------------------------------
 ; TITLE SCREEN
 
@@ -546,10 +548,18 @@ game_restart SUBROUTINE game_restart
 
 	RESET_FLIGHT_PATTERN 0
 
+	; save hiscore
+	LDA SCORE
+	SED
+	CMP HISCORE 
+	BCC .done_hiscore
+	STA HISCORE
+.done_hiscore
+	CLD
+
+	; reset score
 	LDA #$0
 	STA SCORE
-
-	; not resetting high score (!)
 
 	LDA #PLAY_STATE_READY
 	STA PLAY_STATE
@@ -572,37 +582,61 @@ game_restart SUBROUTINE game_restart
 	; use the very first frame of the game sequence to position elements
 	VERTICAL_SYNC
 
-	; position obstacle trigger (ball) at right most screen edge
-	; this will be hidden because of the aggresive triggering of HMOVE
-	; we do at the beginning of every scanline
-	FINE_POS_SCREEN_LEFT RESM0, OB_0_HPOS, 4, 74
+	; position both obstacles inside the activision-border
+	FINE_POS_SCREEN_LEFT RESM0, OB_0_HPOS, 4, 0
+	FINE_POS_SCREEN_LEFT RESM0, OB_1_HPOS, 4, 0
 
-	; place obstacle 1 (missile 1) at right most screen edge
-	FINE_POS_SCREEN_RIGHT RESM1, OB_1_HPOS, 4, 5
+	; obstacle 0 starts moving immediately - obstacle 1 will begin moving later
+	LDA #1
+	STA OB_0_SPEED
+	LDA #0
+	STA OB_1_SPEED 
 
 	; place obstacle 0 (missile 1) at screen middle
 
 
-	
+
 ; ----------------------------------
 ; GAME - VSYNC / VBLANK
 
-game_vsync
-game_vblank SUBROUTINE game_vblank
+game_vsync SUBROUTINE game_vsync
 	VSYNC_KERNEL_BASIC
+
+
+game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
+; flow through the VBLANK differs depending on PLAY_STATE and frame count
+
+; PLAY_STATE_PLAY
+;							\----> main_triage ---> 1 . collisions	--\
+;									 /						 +--> 2 . sprite					---------> vblank end
+;									/							 \--> 3 . foliage			--/   /	  /
+; PLAY_STATE_APPROACH																			 /	 /
+;																													/		/
+; PLAY_STATE_COLLISION ----------------------------------/	 /
+;																														/
+; PLAY_STATE_DROWN ----------------------------------------/
+
 	LDX PLAY_STATE
-	BEQ .far_jmp_game_vblank_play
+	BEQ .far_jmp_play
+
+	CPX #PLAY_STATE_APPROACH
+	BEQ .far_jmp_approach
 
 	CPX #PLAY_STATE_COLLISION
 	BEQ game_vblank_death_collision
+
 	CPX #PLAY_STATE_DEATH_DROWN
 	BEQ game_vblank_death_drown
+
 	JMP game_vblank_ready
 
-.far_jmp_game_vblank_play
-	JMP game_vblank_play
+.far_jmp_approach
+	JMP game_vblank_approach
+
+.far_jmp_play
+	JMP game_vblank_main_triage
 
 	
 ; ----------------------------------
@@ -613,12 +647,12 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	BMI .continue_ready_state
 
 .end_ready_state
-	LDA #PLAY_STATE_PLAY
+	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
 
 .continue_ready_state
 	JMP game_vblank_end
-
+	
 
 ; ----------------------------------
 ; GAME - VBLANK - DEATH - DROWN
@@ -706,10 +740,30 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 
 
 ; ----------------------------------
-; GAME - VBLANK - PLAY
+; GAME - VBLANK - APPROACH
 
-game_vblank_play SUBROUTINE game_vblank_play
-	MULTI_COUNT_THREE_CMP 0
+game_vblank_approach SUBROUTINE game_vblank_approach
+	; if obstacle 0 has reaced middle of screen then
+	; start obstacle 1 moving and change play state to PLAY_STATE_PLAY
+	LDA BIRD_HPOS
+	CMP #BIRD_HPOS_PLAY_POS
+	BNE .done_check_end_approach
+	LDA OB_0_HPOS
+	CMP #78
+	BNE .done_check_end_approach
+	LDA #1
+	STA OB_1_SPEED
+	LDA #PLAY_STATE_PLAY
+	STA PLAY_STATE
+.done_check_end_approach
+
+	; intentionally fall through to VBLANK - PLAY
+
+; ----------------------------------
+; GAME - VBLANK - MAIN (TRIAGE)
+
+game_vblank_main_triage SUBROUTINE game_vblank_main_triage
+	MULTI_COUNT_THREE_CMP 1
 	BEQ .far_jmp
 	BMI game_vblank_collisions
 	BPL game_vblank_foliage
@@ -718,15 +772,19 @@ game_vblank_play SUBROUTINE game_vblank_play
 	JMP game_vblank_player_sprite
 
 ; -------------
-; GAME - VBLANK - PLAY - UPDATE FOLIAGE
+; GAME - VBLANK - MAIN - FOLIAGE
 game_vblank_foliage
 	FOLIAGE_ANIMATION 1
 	JMP game_vblank_end
 
 ; -------------
-; GAME - VBLANK - PLAY - COLLISIONS / OBSTACLE RESET
-game_vblank_collisions
-	; check bird collision
+; GAME - VBLANK - MAIN - COLLISIONS / OBSTACLE RESET
+game_vblank_collisions SUBROUTINE game_vblank_collisions
+	; skip the collisions frame if we're not in PLAY_STATE_PLAY
+	LDA PLAY_STATE
+	BNE .jmp_vblank_end
+
+	; bird collision
 	BIT CXM0P
 	BMI .bird_collision
 	BVS .bird_collision
@@ -734,7 +792,7 @@ game_vblank_collisions
 	BMI .bird_collision
 	BVS .bird_collision
 
-	; reset obstacle gap / branch in "activision border"
+	; reset obstacle gap / branch in activision-border
 	; we're comparing against three and less because we only run
 	; this "collision" vblank subroutine every three frames
 	LDA OB_0_HPOS
@@ -744,6 +802,7 @@ game_vblank_collisions
 	CMP #03
 	BCC .reset_obstacle_1
 
+.jmp_vblank_end
 	JMP game_vblank_end
 
 .reset_obstacle_0
@@ -767,15 +826,6 @@ game_vblank_collisions
 .bird_collision
 	; TODO: better collision handling
 	
-	; save hiscore
-	LDA SCORE
-	SED
-	CMP HISCORE 
-	BCC .bird_collision_reset
-	STA HISCORE
-.bird_collision_reset
-	CLD
-
 	; prepare death animation
 
 	; note obstacle movement will effectively be stopped now because it will
@@ -796,9 +846,9 @@ game_vblank_collisions
 
 	
 ; -------------
-; GAME - VBLANK - PLAY - UPDATE BIRD SPRITE
+; GAME - VBLANK - MAIN - UPDATE BIRD SPRITE
 
-game_vblank_player_sprite
+game_vblank_player_sprite SUBROUTINE game_vblank_player_sprite
 	; move bird towards play position if it's not there already
 	LDA BIRD_HPOS
 	CMP #BIRD_HPOS_PLAY_POS
@@ -898,23 +948,25 @@ game_vblank_end SUBROUTINE game_vblank_end
 	; progress & position obstacles
 	; (note that we're performing the progression every frame)
 	LDA PLAY_STATE
-	CMP #PLAY_STATE_PLAY
-	BNE .end_obstacle_progression
-	FINE_POS_MOVE_LEFT OB_0_HPOS, #1
-	FINE_POS_MOVE_LEFT OB_1_HPOS, #1
-.end_obstacle_progression
-	LDA OB_1_HPOS
-	FINE_POS_SCREEN RESM1
+	BEQ .progress_obstacles
+	CMP #PLAY_STATE_APPROACH
+	BEQ .progress_obstacles
+	JMP .position_obstacles
+
+.progress_obstacles
+	FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED
+	FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED 
+
+.position_obstacles
 	LDA OB_0_HPOS
 	FINE_POS_SCREEN RESM0
+	LDA OB_1_HPOS
+	FINE_POS_SCREEN RESM1
 
-
-game_vblank_end_display_prep SUBROUTINE game_vblank_end_display_prep
 	; setup display kernel (for foliage area)
 
 	; do horizontal movement
-	; note that move registers need to be set up every frame before this
-	; point because we're going to set them all to zero later on
+	; note that movement registers need to be reset every frame
 	STA WSYNC
 	STA HMOVE
 
@@ -940,10 +992,8 @@ game_vblank_end_display_prep SUBROUTINE game_vblank_end_display_prep
 	LDX FOLIAGE_SEED
 
 	; reset all movmement registers - we'll be triggering HMOVE every scanline and we
-	; don't want objects flying all over the screen. move registers will be reset
-	; accordingly at the beginning of each frame
-	; note that we should be 24 machine cycles between these writes and
-	; the HMOVE earlier
+	; don't want objects flying all over the screen.
+	; note 24 machine cycles required between HMOVE and HMCLR 
 	STA HMCLR
 
 	; wait for end of vblank kernel 

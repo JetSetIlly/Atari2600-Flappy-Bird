@@ -253,6 +253,7 @@ POS_SCREEN_CYCLES = 11
 	MAC FINE_POS_MOVE_RIGHT
 		; {position store} {amount}
 		; amount value should be positive
+		; {position store} is left in the accumulator
 		LDA {1}
 		CLC
 		ADC {2}
@@ -267,6 +268,7 @@ POS_SCREEN_CYCLES = 11
 	MAC FINE_POS_MOVE_LEFT
 		; {position store} {amount}
 		; amount value should be positive
+		; {position store} is left in the accumulator
 		LDA {1}
 		SEC
 		SBC {2}
