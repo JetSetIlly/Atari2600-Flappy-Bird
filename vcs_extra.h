@@ -78,9 +78,9 @@ POS_SCREEN_CYCLES = 11
 
 	MAC __POS_SCREEN_A
 		;	{sprite}
-		; accumulator to be preset with coarse position
-		; clobbers X register
 		; requires 16 bit memory location called _SLEEP_TABLE_JMP
+		; accumulator to be preset with coarse position
+		; clobbers X
 
 		ASL
 		TAX

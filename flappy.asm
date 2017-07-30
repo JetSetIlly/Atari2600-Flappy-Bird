@@ -295,9 +295,13 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 	; we'll be using fine positioning from vcs_extra.h so include sleep table definitions
 	DEF_POS_SLEEP_TABLE
 
+
 ; ----------------------------------
 ; MACROS
 	MAC POSITION_BIRD_SPRITE
+		; no arguments
+		; clobbers A and X
+
 		LDA BIRD_HPOS
 		FINE_POS_SCREEN RESP0
 		LDA BIRD_HPOS
@@ -308,7 +312,9 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 
 
 	MAC PROGRESS_POSITION_OBSTACLES
-		; {1} boolean - loop or no loop
+		; {loop -> boolean) 
+		; clobbers A and X
+
 .progress_obstacles
 		FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, {1}
 		FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, {1}
@@ -321,15 +327,13 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 	ENDM
 
 
-WITH_BRANCH = TRUE
-NO_BRANCH = FALSE
-	MAC NEW_OBSTACLE
-		; {1} == WITH_BRANCH || NO_BRANCH
+AC NEW_OBSTACLE
+		; {obstacle number -> 0 or 1}
 		; clobbers A and X
 		; alters OB_0 or OB_1
 
-		IF {1} != WITH_BRANCH && {1} != NO_BRANCH
-			ECHO "MACRO ERROR: 'NEW_OBSTACLE': {1} must be WITH_BRANCH or NO_BRANCH"
+		IF {1} != 0 && {1} != 1
+			ECHO "MACRO ERROR: 'NEW_OBSTACLE': {1} must be 0 or 1"
 			ERR
 		ENDIF
 
@@ -338,11 +342,11 @@ NO_BRANCH = FALSE
 		CLC
 		ADC OBSTACLES,X
 
-		IF {1} == NO_BRANCH
+		IF {1} == 0
 			STA OB_0
 		ENDIF
 
-		IF {1} == WITH_BRANCH
+		IF {1} == 1
 			STA OB_1
 			LDX BRANCH_SEED
 			LDA BRANCHES,X
@@ -352,23 +356,22 @@ NO_BRANCH = FALSE
 
 
 	MAC APPLY_FLIGHT_PATTERN
+		; no arguments
 		; clobbers A and Y
+
 		LDY PATTERN_INDEX
 		LDA (FLIGHT_PATTERN),Y
 		CLC
 		ADC BIRD_VPOS
 	ENDM
 
-DEATH_SPIRAL = 1
-ALWAYS = 0
 	MAC RESET_FLIGHT_PATTERN
-		; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
-		; see FLIGHT_PATTERN definitions for memory layout explanation
-
-		; {1} == DEATH_SPIRAL || ALWAYS
+		; {death spiral -> boolean}
 		; clobbers A and Y
 		; alters PATTERN_INDEX
 
+		; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
+		; (see FLIGHT_PATTERN definitions for memory layout explanation)
 		; first byte in (FLIGHT_PATTERN) is the pattern's length 
 		LDY #$0
 		LDA (FLIGHT_PATTERN),Y
@@ -377,24 +380,22 @@ ALWAYS = 0
 		INY
 		LDA (FLIGHT_PATTERN),Y
 
-		IF {1} == DEATH_SPIRAL
+		IF {1} == TRUE
 			CMP PATTERN_INDEX
-			; when called with the DEATH_SPIRAL argument AND the current PATTERN_INDEX is less than
-			; the initialisation value, then don't initialise the index
+			; if current PATTERN_INDEX is less than the initialisation value, then don't initialise the index
 			BCS .no_store_index
 		ENDIF
 		STA PATTERN_INDEX
 .no_store_index
 	ENDM
 
-CHECK_BIRD_HIGH = 1
-NO_CHECK_BIRD_HIGH = 0
 	MAC UPDATE_FLIGHT_PATTERN
-		; {1} == CHECK_BIRD_HIGH || NO_CHECK_BIRD_HIGH
+		; {check bird height -> boolean}
 		; requires PATTERN_INDEX in Y
 		; clobbers A
 		; alters Y and PATTERN_INDEX
-		IF {1} == CHECK_BIRD_HIGH
+
+		IF {1} == TRUE
 			CMP #BIRD_HIGH
 			BCC .store_vpos
 			LDA #BIRD_HIGH
@@ -411,33 +412,35 @@ NO_CHECK_BIRD_HIGH = 0
 		STA PATTERN_INDEX
 	ENDM
 
-	MAC DROWNING_PLAY_STATE
-		; change play state to death by drowning
-
+	MAC PLAY_STATE_DROWNING
+		; no arguments
 		; clobbers A
 		; alters BIRD_VPOS, PATTERN_INDEX, PLAY_STATE
+
+		; put game into drowning state
+		;		o make sure bird is at the lowest position
+		;		o use pattern index to measure length of drowning animation
+		;		o use wings up sprite for drowning sprite
 
 		LDA #BIRD_LOW
 		STA BIRD_VPOS
 		LDA #DEATH_DROWNING_LEN
 		STA PATTERN_INDEX
+		LDA #<WINGS_UP
+		STA SPRITE_WINGS_ADDRESS
 		LDA #PLAY_STATE_DEATH_DROWN
 		STA PLAY_STATE
 
-		; use wings up sprite for drowning sprite
-		LDA #<WINGS_UP
-		STA SPRITE_WINGS_ADDRESS
 	ENDM
 
 	MAC FOLIAGE_ANIMATION
-		; {1} == 0 -> do NOT the forest background
-		; {1} == n -> do animate the forest background (at the speed of FOLIAGE CHAOS CYCLE)
-
+		; {animate forest background -> boolean}
 		; clobbers Y
 		; alters FOREST_MID_0, FOREST_MID_1, FOREST_MID_2, FOLIAGE_SEED
 
 		; cycle playfield data used to illustrate foliage, and by
 		; association, the playfield used for the water/swamp
+
 		LDY FOLIAGE_SEED
 		INY
 		CPY #FOLIAGE_CHAOS_CYCLE
@@ -445,7 +448,7 @@ NO_CHECK_BIRD_HIGH = 0
 		LDY #0
 
 		; rotate forest whenever foliage chaos cycle resets
-		IF {1} == 1
+		IF {1} == TRUE
 .rotate_forest
 			CLC
 			ROR FOREST_MID_0
@@ -535,9 +538,9 @@ game_state_init SUBROUTINE game_state_init
 	LDA #$2
 	STA OBSTACLE_SEED
 	STA BRANCH_SEED
-	NEW_OBSTACLE FALSE
+	NEW_OBSTACLE 0
 	INC OBSTACLE_SEED
-	NEW_OBSTACLE TRUE
+	NEW_OBSTACLE 1
 
 	; initalise background trees
 	LDA FOREST_MID_0_INIT
@@ -571,7 +574,7 @@ game_restart SUBROUTINE game_restart
 	LDA #>EASY_FLIGHT_PATTERN
 	STA FLIGHT_PATTERN+1
 
-	RESET_FLIGHT_PATTERN 0
+	RESET_FLIGHT_PATTERN FALSE
 
 	; save hiscore
 	LDA SCORE
@@ -582,24 +585,7 @@ game_restart SUBROUTINE game_restart
 .done_hiscore
 	CLD
 
-	; reset score
-	LDA #$0
-	STA SCORE
-
-	LDA #PLAY_STATE_READY
-	STA PLAY_STATE
-
-	LDA #BIRD_VPOS_INIT
-	STA BIRD_VPOS
-
-	LDA #BIRD_HPOS_INIT
-	STA BIRD_HPOS
-
-	; use flat wings sprite at start
-	LDA #<WINGS_FLAT
-	STA SPRITE_WINGS_ADDRESS
-
-	; POSITION ELEMENTS
+	; position elements
 
 	; make sure movement registers are zero
 	STA HMCLR
@@ -617,6 +603,20 @@ game_restart SUBROUTINE game_restart
 	LDA #0
 	STA OB_1_SPEED 
 
+	; put game into ready state
+	;		o reset score
+	;		o initialise vertical and horizontal position
+	;		o use flat wings sprite at start
+	LDA #$0
+	STA SCORE
+	LDA #BIRD_VPOS_INIT
+	STA BIRD_VPOS
+	LDA #BIRD_HPOS_INIT
+	STA BIRD_HPOS
+	LDA #<WINGS_FLAT
+	STA SPRITE_WINGS_ADDRESS
+	LDA #PLAY_STATE_READY
+	STA PLAY_STATE
 
 
 
@@ -635,7 +635,7 @@ game_vblank SUBROUTINE game_vblank
 ; PLAY_STATE_PLAY
 ;							\----> main_triage ---> 1 . collisions	--\
 ;									 /						 +--> 2 . sprite					---------> position sprites ---------> vblank end
-;									/							 \--> 3 . foliage			--/                                   /
+;									/							 \--> 3 . foliage			--/              (scoring)            /
 ; PLAY_STATE_APPROACH																			                                 /
 ;                                                                                         /
 ; PLAY_STATE_READY --------------------------------------------------------------------- /
@@ -683,18 +683,22 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	; check for user input
 	DISCREET_TRIGGER_PLAYER0
 	BMI .ready_state_triage
-
 .end_ready_state
+	; put into approach state
+	;		o no other changes to game state
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
 	JMP .continue_ready_state
 
+	; update every three frames
+	; - same sequence as main play state
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
 	BEQ .update_bird
 	BMI .continue_ready_state
 
-	FOLIAGE_ANIMATION 1
+.update_foliage
+	FOLIAGE_ANIMATION TRUE
 	JMP .continue_ready_state
 
 .update_bird
@@ -736,7 +740,7 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	DEX
 	STX BIRD_VPOS
 
-	FOLIAGE_ANIMATION 0
+	FOLIAGE_ANIMATION FALSE
 	JMP .continue_drowning
 
 .drowning_end
@@ -778,13 +782,13 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	STA SPRITE_WINGS_ADDRESS
 .wings_updated
 
-	FOLIAGE_ANIMATION 0
+	FOLIAGE_ANIMATION FALSE
 
 	; apply flight pattern and check for drowning state
 	APPLY_FLIGHT_PATTERN
 	CMP #BIRD_LOW
 	BCC	.enter_drowning_state
-	UPDATE_FLIGHT_PATTERN CHECK_BIRD_HIGH
+	UPDATE_FLIGHT_PATTERN TRUE
 
 	; propel bird forward - after drowning check
 	LDA BIRD_HPOS
@@ -795,7 +799,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	JMP .continue_collision
 
 .enter_drowning_state
-	DROWNING_PLAY_STATE
+	PLAY_STATE_DROWNING
 
 .continue_collision
 	POSITION_BIRD_SPRITE
@@ -807,7 +811,8 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 
 game_vblank_approach SUBROUTINE game_vblank_approach
 	; if obstacle 0 has reached middle of screen then
-	; start obstacle 1 moving and change play state to PLAY_STATE_PLAY
+	; put into main play state
+	;		o start obstacle 1 moving
 	LDA BIRD_HPOS
 	CMP #BIRD_HPOS_PLAY_POS
 	BNE .done_check_end_approach
@@ -827,17 +832,17 @@ game_vblank_approach SUBROUTINE game_vblank_approach
 
 game_vblank_main_triage SUBROUTINE game_vblank_main_triage
 	MULTI_COUNT_THREE_CMP 1
-	BEQ .far_jmp
+	BEQ .far_jmp_sprite
 	BMI game_vblank_collisions
 	BPL game_vblank_foliage
 
-.far_jmp
-	JMP game_vblank_player_sprite
+.far_jmp_sprite
+	JMP game_vblank_sprite
 
 ; -------------
 ; GAME - VBLANK - MAIN - FOLIAGE
 game_vblank_foliage
-	FOLIAGE_ANIMATION 1
+	FOLIAGE_ANIMATION TRUE
 	JMP game_vblank_position_sprites
 
 ; -------------
@@ -867,31 +872,25 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 
 .reset_obstacle_0
 	; NOTE: no branch ornamentation for obstacle 0
-	NEW_OBSTACLE NO_BRANCH
+	NEW_OBSTACLE 0
 	JMP game_vblank_position_sprites
 
 .reset_obstacle_1
-	NEW_OBSTACLE WITH_BRANCH
+	NEW_OBSTACLE 1
 	JMP game_vblank_position_sprites
 
 .bird_collision
-	; TODO: better collision handling
-	
-	; prepare death animation
-
-	; note obstacle movement will effectively be stopped now because it will
-	; be stopped at the end of the vblank (as usual) but won't be restarted 
-	; in the game_vblank_death subroutine
-
-	; start collision animation with wings up sprite
+	; put into collision play state
+	;		o reset flight pattern
+	;		o start collision animation with wings up sprite
+	;		o note obstacle movement will effectively be stopped now because it will
+	;			be stopped at the end of the vblank (as usual) but won't be restarted 
+	;			in the game_vblank_death subroutine
+	RESET_FLIGHT_PATTERN TRUE
 	LDA #<WINGS_UP
 	STA SPRITE_WINGS_ADDRESS
-
-	; change play state
 	LDA #PLAY_STATE_COLLISION
 	STA PLAY_STATE
-
-	RESET_FLIGHT_PATTERN DEATH_SPIRAL
 
 .done_vblank_collisions
 	JMP game_vblank_position_sprites
@@ -900,7 +899,7 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 ; -------------
 ; GAME - VBLANK - MAIN - UPDATE BIRD SPRITE
 
-game_vblank_player_sprite SUBROUTINE game_vblank_player_sprite
+game_vblank_sprite SUBROUTINE game_vblank_sprite
 	DISCREET_TRIGGER_PLAYER0
 	BMI .process_flight_pattern
 
@@ -963,14 +962,14 @@ game_vblank_player_sprite SUBROUTINE game_vblank_player_sprite
 	JMP .update_flight_pattern_index
 
 .begin_drowning
-	DROWNING_PLAY_STATE
+	PLAY_STATE_DROWNING
 	JMP .fly_end
 
 .limit_height
 	LDA #BIRD_HIGH
 
 .update_flight_pattern_index
-	UPDATE_FLIGHT_PATTERN NO_CHECK_BIRD_HIGH
+	UPDATE_FLIGHT_PATTERN FALSE
 
 .fly_end
 	; fall through
@@ -1323,8 +1322,8 @@ swamp SUBROUTINE swamp
 
 
 ; ----------------------------------
-; GAME - DISPLAY KERNEL - SCORING
-scoring SUBROUTINE scoring
+; GAME - DISPLAY KERNEL - DISPLAY SCORE
+display_score SUBROUTINE display_score
 	STA WSYNC
 	LDA #0
 	STA PF0
