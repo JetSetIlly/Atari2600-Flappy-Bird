@@ -96,8 +96,6 @@ __STATE_INPT4						ds 1
 
 STATE_SWCHB							ds 1	; state of switches from frame to frame
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
-BIRD_VPOS								ds 1	; between BIRD_HIGH and BIRD_LOW
-BIRD_HPOS								ds 1	; current horizontal pixel position of bird
 SELECTED_HEAD						ds 1	;	index into HEADS_TABLE
 
 ; selected flight pattern - see FLIGHT_PATTERN macros
@@ -107,15 +105,18 @@ FLIGHT_PATTERN					ds 2
 ADDRESS_SPRITE_0				ds 2
 ADDRESS_SPRITE_1				ds 2
 
+BIRD_VPOS								ds 1	; between BIRD_HIGH and BIRD_LOW
+BIRD_HPOS								ds 1	; current horizontal position of bird (in pixels)
+
 ; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
-; if PLAY_STATE == PLAY_STATE_PLAY
+; if PLAY_STATE == PLAY_STATE_PLAY || PLAY_STATE_COLLISION
+;	then
+;		PATTERN_INDEX indexes READY_PATTERN
+;
+; if PLAY_STATE == PLAY_STATE_PLAY || PLAY_STATE_COLLISION
 ;	then
 ;		PATTERN_INDEX indexes FLIGHT_PATTERN
-;
-; if PLAY_STATE == PLAY_STATE_COLLISION
-;	then
-;		PATTERN_INDEX indexes COLLISION_PATTERN
 ;
 ; if PLAY_STATE == PLAY_STATE_DEATH_DROWN
 ;	then
@@ -182,8 +183,8 @@ READY_TEXT_LINES = SPRITE_LINES		; needs to be equal to SPRITE_LINES for display
 ; sprite data
 WINGS
 WINGS_UP				HEX	00 00 00 00 30 70 60 40 
-WINGS_FLAT			HEX	00 00 00 00 70 40 00 00
-WINGS_DOWN			HEX	00 40 60 70 70 00 00 00
+WINGS_FLAT			HEX	00 00 00 00 30 60 00 00
+WINGS_DOWN			HEX	00 40 60 70 30 00 00 00
 
 HEADS
 HEAD_GIRL_A			HEX 00 00 00 00 20 1C 18 20
@@ -279,7 +280,7 @@ OBSTACLES_LEN	= 6
 
 ; list of branches
 ; note that we test for branch on the even scanlines of the play area so these values should be even
-BRANCHES			HEX 18 26 30 38 44 58 70
+BRANCHES			HEX 18 24 30 38 44 58 70
 BRANCHES_LEN	= 7
 
 ; flight patterns
@@ -294,7 +295,9 @@ BRANCHES_LEN	= 7
 ;		as this may cause the bird to descend lower than the screen (ie. a negative value)
 ;
 ; see FLIGHT_PATTERN macros
+FLIGHT_PATTERNS
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
+READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 0, 0, 0, 1
 
 	; we'll be using fine positioning from vcs_extra.h so include sleep table definitions
 	DEF_POS_SLEEP_TABLE
@@ -362,6 +365,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 	MAC APPLY_FLIGHT_PATTERN
 		; no arguments
 		; clobbers A and Y
+		; leaves PATTERN_INDEX in Y
 
 		LDY PATTERN_INDEX
 		LDA (FLIGHT_PATTERN),Y
@@ -393,25 +397,24 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 .no_store_index
 	ENDM
 
-	MAC UPDATE_FLIGHT_PATTERN
-		; {check bird height -> boolean}
+	MAC UPDATE_FLIGHT_PATTERN 
+		; {cycle pattern -> boolean}
 		; requires PATTERN_INDEX in Y
-		; clobbers A
-		; alters Y and PATTERN_INDEX
+		; clobbers A and Y
+		; alters PATTERN_INDEX
 
-		IF {1} == TRUE
-			CMP #BIRD_HIGH
-			BCC .store_vpos
-			LDA #BIRD_HIGH
-		ENDIF
-.store_vpos
-		STA BIRD_VPOS
 		INY
 		TYA
-		LDX #$0
+		LDX #$0										; X = 0 -> length byte of FLIGHT_PATTERN
 		CMP (FLIGHT_PATTERN),X
 		BCC .store_index
-		LDA (FLIGHT_PATTERN),X
+
+		IF {1} == TRUE
+			LDA #$01
+		ELSE
+			DEY
+			TYA
+		ENDIF
 .store_index
 		STA PATTERN_INDEX
 	ENDM
@@ -528,6 +531,9 @@ game_state_init SUBROUTINE game_state_init
 	STA ADDRESS_SPRITE_1+1
 	STA DIGIT_ADDRESS_0+1
 	STA DIGIT_ADDRESS_1+1
+	LDA #>FLIGHT_PATTERNS
+	STA FLIGHT_PATTERN+1
+
 
 	LDA #>SET_OBSTACLE_TABLE
 	STA OB_0+1
@@ -573,13 +579,6 @@ game_restart SUBROUTINE game_restart
 	DISCREET_TRIGGER_PLAYER0
 
 	MULTI_COUNT_SETUP
-	; TODO: use flight pattern depending on switch
-	LDA #<EASY_FLIGHT_PATTERN
-	STA FLIGHT_PATTERN
-	LDA #>EASY_FLIGHT_PATTERN
-	STA FLIGHT_PATTERN+1
-
-	RESET_FLIGHT_PATTERN FALSE
 
 	; save hiscore
 	LDA SCORE
@@ -622,7 +621,9 @@ game_restart SUBROUTINE game_restart
 	STA ADDRESS_SPRITE_0
 	LDA #PLAY_STATE_READY
 	STA PLAY_STATE
-
+	LDA #<READY_FLIGHT_PATTERN
+	STA FLIGHT_PATTERN
+	RESET_FLIGHT_PATTERN FALSE
 
 
 ; ----------------------------------
@@ -690,9 +691,15 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	BMI .ready_state_triage
 .end_ready_state
 	; put into approach state
-	;		o no other changes to game state
+	;		o set correct flight pattern
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
+
+	; TODO: use flight pattern depending on switch
+	LDA #<EASY_FLIGHT_PATTERN
+	STA FLIGHT_PATTERN
+	RESET_FLIGHT_PATTERN FALSE
+
 	JMP .display_bird_sprite
 
 	; update every three frames
@@ -707,6 +714,10 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	JMP .display_bird_sprite
 
 .update_bird
+	; update PATTERN_INDEX (cycling if necessary)
+	LDY PATTERN_INDEX
+	UPDATE_FLIGHT_PATTERN TRUE
+
 	; move bird towards play position if it's not there already
 	LDA BIRD_HPOS
 	CMP #BIRD_HPOS_PLAY_POS
@@ -718,6 +729,8 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	JMP .display_bird_sprite
 
 .display_ready_logo
+	LDA #90
+	STA BIRD_VPOS
 	LDA #OKAY_COLOR
 	STA COLUP0
 	STA COLUP1
@@ -732,8 +745,17 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	JMP game_vblank_end
 
 .display_bird_sprite
+	; BIRD_VPOS gets clobbered every time .display_ready_logo above is run
+	; so we need to start again from BIRD_VPOS_INIT
+	; note that we call UPDATE_FLIGHT_PATTERN in .update_bird above
+	LDA #BIRD_VPOS_INIT
+	STA BIRD_VPOS
+	APPLY_FLIGHT_PATTERN
+	STA BIRD_VPOS
+
 	LDA #<WINGS_FLAT
 	STA ADDRESS_SPRITE_0
+
 	LDY SELECTED_HEAD
 	LDA HEADS_TABLE,Y
 	STA ADDRESS_SPRITE_1
@@ -813,7 +835,15 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	APPLY_FLIGHT_PATTERN
 	CMP #BIRD_LOW
 	BCC	.enter_drowning_state
-	UPDATE_FLIGHT_PATTERN TRUE
+
+	; limit bird height
+	CMP #BIRD_HIGH
+	BCC .update_flight_pattern_index
+	LDA #BIRD_HIGH
+
+.update_flight_pattern_index 
+	STA BIRD_VPOS
+	UPDATE_FLIGHT_PATTERN FALSE
 
 	; propel bird forward - after drowning check
 	LDA BIRD_HPOS
@@ -994,6 +1024,7 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	LDA #BIRD_HIGH
 
 .update_flight_pattern_index
+	STA BIRD_VPOS 
 	UPDATE_FLIGHT_PATTERN FALSE
 
 .fly_end
