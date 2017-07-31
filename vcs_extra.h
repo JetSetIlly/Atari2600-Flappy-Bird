@@ -78,23 +78,23 @@ POS_SCREEN_CYCLES = 11
 
 	MAC __POS_SCREEN_A
 		;	{sprite}
-		; requires 16 bit memory location called _SLEEP_TABLE_JMP
+		; requires 16 bit memory location called __SLEEP_TABLE_JMP
 		; accumulator to be preset with coarse position
 		; clobbers X
 
 		ASL
 		TAX
 		LDA SLEEP_TABLE,X
-		STA _SLEEP_TABLE_JMP+1
+		STA __SLEEP_TABLE_JMP+1
 		INX
 		LDA SLEEP_TABLE,X
-		STA _SLEEP_TABLE_JMP
+		STA __SLEEP_TABLE_JMP
 		JSR .sub
 		STA {1}
 		JMP .done
 .sub
 		STA WSYNC
-		JMP (_SLEEP_TABLE_JMP)
+		JMP (__SLEEP_TABLE_JMP)
 .done
 	ENDM
 
@@ -318,14 +318,14 @@ POS_SCREEN_CYCLES = 11
 		; return value: BPL on trigger, BMI on no trigger
 		LDX INPT4
 		BMI .done					; INPT4 is positive if trigger is pressed 
-		LDA _STATE_INPT4	; read state of INPT4 from when last read
-		; if _STATE_INPT4 is also negative, then there has not been a state change
+		LDA __STATE_INPT4	; read state of INPT4 from when last read
+		; if __STATE_INPT4 is also negative, then there has not been a state change
 		; if it is positive then there has been a state change
 		; this is opposite to the normal meaning of INPT4 so flip the bits to
 		; correct the meaning
 		EOR #$FF
 .done
-		STX _STATE_INPT4	; store state of trigger for next read
+		STX __STATE_INPT4	; store state of trigger for next read
 	ENDM
 
 ; -----------------------------------
@@ -495,12 +495,12 @@ POS_SCREEN_CYCLES = 11
 
 	MAC MULTI_COUNT_SETUP
 		LDA #%10000010						; 2
-		STA _MULTI_COUNT_STATE		; 3
+		STA __MULTI_COUNT_STATE		; 3
 		; 5 cycles
 	ENDM
 
 	MAC MULTI_COUNT_UPDATE
-		LDA _MULTI_COUNT_STATE		; 3
+		LDA __MULTI_COUNT_STATE		; 3
 		BMI .is_negative					; 2/3
 
 .is_positive
@@ -523,7 +523,7 @@ POS_SCREEN_CYCLES = 11
 		LDA #%00000010						; 2
 
 .store
-		STA _MULTI_COUNT_STATE		; 3
+		STA __MULTI_COUNT_STATE		; 3
 		; cycles
 		; ------
 		; 20 - is_negative, negative_reset
@@ -537,7 +537,7 @@ POS_SCREEN_CYCLES = 11
 		; result (waiting for every other frame, or differentiating between the two states, is the same)
 		;		- branch on BEQ and BNE
 		LDA #%10000000						; 2
-		AND _MULTI_COUNT_STATE			; 3
+		AND __MULTI_COUNT_STATE			; 3
 		; 5 cycles
 	ENDM
 
@@ -553,7 +553,7 @@ POS_SCREEN_CYCLES = 11
 		;			branch NOT ON third frame - BNE or BPL
 
 		LDA #%00000011						; 2
-		AND _MULTI_COUNT_STATE		; 3
+		AND __MULTI_COUNT_STATE		; 3
 
 		IF {1} != 0
 			SEC											; 2
@@ -567,7 +567,7 @@ POS_SCREEN_CYCLES = 11
 		; result (waiting for sixth state)
 		;		- branch on BEQ (six count); BNE (non six count)
 		; (note that you can't differentiate the six states using this multi count method)
-		LDA _MULTI_COUNT_STATE			; 3
+		LDA __MULTI_COUNT_STATE			; 3
 	ENDM
 
 ; -----------------------------------

@@ -91,16 +91,16 @@ BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 
-; access _scratch* variables through local "shadow" names only
-; that way, you can better monitor unfortunate memory reuse
-_scratchA								ds 1
+; VCS_EXTRA.H SCOPE
+; - variables beginning with _ are required by routines in vcs_extra.h
+__SLEEP_TABLE_JMP				ds 2
+__MULTI_COUNT_STATE			ds 1
+__STATE_INPT4						ds 1
 
-; variables beginning with _ are required by routines in vcs_extra.h
-_SLEEP_TABLE_JMP				ds 2
-_MULTI_COUNT_STATE			ds 1
-_STATE_INPT4						ds 1
-STATE_SWCHB							ds 1
+; GLOBAL SCOPE 
+; - data that persists for a long time, say, frame to frame
 
+STATE_SWCHB							ds 1	; state of switches from frame to frame
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 BIRD_VPOS								ds 1	; between BIRD_HIGH and BIRD_LOW
 BIRD_HPOS								ds 1	; current horizontal pixel position of bird
@@ -110,8 +110,8 @@ SELECTED_HEAD						ds 1	;	index into HEADS_TABLE
 FLIGHT_PATTERN					ds 2
 
 ; which bird/detail sprite to use in the display kernel
-SPRITE_WINGS_ADDRESS		ds 2
-SPRITE_HEAD_ADDRESS			ds 2
+ADDRESS_SPRITE_0				ds 2
+ADDRESS_SPRITE_1			ds 2
 
 ; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
@@ -142,15 +142,6 @@ OB_1_HPOS						ds 1
 OB_0_SPEED					ds 1
 OB_1_SPEED					ds 1
 
-; pre-calculated ENAM0 and ENAM1 - $0 for obstacle/missile "off" - $2 for "on"
-OB_0_DRAW						ds 1
-OB_1_DRAW						ds 1
-OB_1_NUSIZ					ds 1
-
-; pre-calculated GRP0
-WINGS_DRAW					ds 1
-HEAD_DRAW						ds 1
-
 ; background trees
 FOREST_MID_0					ds 1
 FOREST_MID_1					ds 1
@@ -163,6 +154,20 @@ HISCORE								ds 1
 ; base address of current number being drawn
 DIGIT_ADDRESS_0				ds 2
 DIGIT_ADDRESS_1				ds 2
+
+
+; LOCAL SCOPE
+; - can be resused between subroutines
+; - don't access these locations accept through aliases defined
+; in the subroutine that uses them
+
+_localA								ds 1
+_localB								ds 1
+_localC								ds 1
+_localD								ds 1
+_localE								ds 1
+_localF								ds 1
+
 
 	; DASM directive - echo number of bytes left in RAM
 	ECHO "----",($100 - *) , "bytes of RAM left"
@@ -427,7 +432,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 		LDA #DEATH_DROWNING_LEN
 		STA PATTERN_INDEX
 		LDA #<WINGS_UP
-		STA SPRITE_WINGS_ADDRESS
+		STA ADDRESS_SPRITE_0
 		LDA #PLAY_STATE_DEATH_DROWN
 		STA PLAY_STATE
 
@@ -520,8 +525,8 @@ title_screen SUBROUTINE title_screen
 game_state_init SUBROUTINE game_state_init
 	; initialise most significant byte of indirect addresses
 	LDA #>DATA_SEGMENT
-	STA SPRITE_WINGS_ADDRESS+1
-	STA SPRITE_HEAD_ADDRESS+1
+	STA ADDRESS_SPRITE_0+1
+	STA ADDRESS_SPRITE_1+1
 	STA DIGIT_ADDRESS_0+1
 	STA DIGIT_ADDRESS_1+1
 	LDA #>OBSTACLE_ENABLE_PRECALC
@@ -532,7 +537,7 @@ game_state_init SUBROUTINE game_state_init
 	LDY #$0
 	STY SELECTED_HEAD
 	LDA HEADS_TABLE,Y
-	STA SPRITE_HEAD_ADDRESS
+	STA ADDRESS_SPRITE_1
 
 	; initialise obstacles
 	LDA #$2
@@ -614,7 +619,7 @@ game_restart SUBROUTINE game_restart
 	LDA #BIRD_HPOS_INIT
 	STA BIRD_HPOS
 	LDA #<WINGS_FLAT
-	STA SPRITE_WINGS_ADDRESS
+	STA ADDRESS_SPRITE_0
 	LDA #PLAY_STATE_READY
 	STA PLAY_STATE
 
@@ -764,22 +769,22 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 
 .update_display_elements
 	; alter wing position - simulates furious flapping
-	LDA SPRITE_WINGS_ADDRESS
+	LDA ADDRESS_SPRITE_0
 	CMP #<WINGS_UP
 	BEQ .use_wings_flat
 	CMP #<WINGS_FLAT
 	BEQ .use_wings_down
 .use_wings_up
 	LDA #<WINGS_UP
-	STA SPRITE_WINGS_ADDRESS
+	STA ADDRESS_SPRITE_0
 	JMP .wings_updated
 .use_wings_flat
 	LDA #<WINGS_FLAT
-	STA SPRITE_WINGS_ADDRESS
+	STA ADDRESS_SPRITE_0
 	JMP .wings_updated
 .use_wings_down
 	LDA #<WINGS_DOWN
-	STA SPRITE_WINGS_ADDRESS
+	STA ADDRESS_SPRITE_0
 .wings_updated
 
 	FOLIAGE_ANIMATION FALSE
@@ -888,7 +893,7 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 	;			in the game_vblank_death subroutine
 	RESET_FLIGHT_PATTERN TRUE
 	LDA #<WINGS_UP
-	STA SPRITE_WINGS_ADDRESS
+	STA ADDRESS_SPRITE_0
 	LDA #PLAY_STATE_COLLISION
 	STA PLAY_STATE
 
@@ -922,17 +927,17 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	STX PATTERN_INDEX
 
 	; flip sprite in response to trigger press
-	LDX SPRITE_WINGS_ADDRESS
+	LDX ADDRESS_SPRITE_0
 	CPX #<WINGS_DOWN
 	BEQ .flip_sprite_use_flat
 
 	LDX #<WINGS_DOWN
-	STX SPRITE_WINGS_ADDRESS
+	STX ADDRESS_SPRITE_0
 	JMP .flip_sprite_end
 
 .flip_sprite_use_flat
 	LDX #<WINGS_FLAT
-	STX SPRITE_WINGS_ADDRESS
+	STX ADDRESS_SPRITE_0
 .flip_sprite_end
 
 .process_flight_pattern
@@ -945,11 +950,11 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	JMP .sprite_set
 .use_wings_up_sprite
 	LDX #<WINGS_UP
-	STX SPRITE_WINGS_ADDRESS
+	STX ADDRESS_SPRITE_0
 	JMP .sprite_set
 .use_glide_sprite
 	LDX #<WINGS_FLAT
-	STX SPRITE_WINGS_ADDRESS
+	STX ADDRESS_SPRITE_0
 .sprite_set
 
 	; check for ground collision
@@ -1160,42 +1165,52 @@ game_play_area_prepare SUBROUTINE game_play_area_prepare
 	LDX #SPRITE_LINES
 
 game_play_area SUBROUTINE game_play_area
-.YSTATE = _scratchA
+.YSTATE = _localA
+.MISSILE_0_SET	= _localB
+.MISSILE_1_SET	= _localC
+.MISSILE_1_NUSIZ = _localD
+.PLAYER_0_SPRITE = _localE
+.PLAYER_1_SPRITE	= _localF
 
-	; loop alternates between .display_bird and .display_obstacle starting with .display_bird
+	; make sure we don't draw the sprites at the top of next frame by accident
+	LDA #0
+	STA .PLAYER_0_SPRITE
+	STA .PLAYER_1_SPRITE
+
+	; loop alternates between .set_player_sprites and .set_missile_sprites starting with .set_player_sprites
 	; Y register contains the number of VISIBLE_LINES_PLAYAREA remaining
 	; X register contains number of SPRITE_LINES remaining
 
 	; ODD NUMBERED SCANLINES
-.display_bird
+.set_player_sprites
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
-	LDA WINGS_DRAW						; 3
+	LDA .PLAYER_0_SPRITE			; 3
 	STA GRP0									; 3
 
-	LDA HEAD_DRAW							; 3
+	LDA .PLAYER_1_SPRITE			; 3
 	STA GRP1									; 3
 
 	; maximum 22 cycles in HBLANK
 	;		15 cycles used
 	;		7 cycles until end of HBLANK
 
-.precalc_sprite
+.precalc_players_sprites
 	; if we're at scan line number BIRD_VPOS (ie. where the bird is) - turn on the sprite
 	CPY BIRD_VPOS									; 2
-	BCS .precalc_sprite_done			; 2/3
+	BCS .done_precalc_players			; 2/3
 	TXA														; 2
-	BMI .precalc_sprite_done			; 2/3
+	BMI .done_precalc_players			; 2/3
 	STY .YSTATE										; 3
 	TAY														; 2
-	LDA (SPRITE_WINGS_ADDRESS),Y	; 5
-	STA WINGS_DRAW								; 3 
-	LDA (SPRITE_HEAD_ADDRESS),Y		; 5
-	STA HEAD_DRAW									; 3 
+	LDA (ADDRESS_SPRITE_0),Y			; 5
+	STA .PLAYER_0_SPRITE					; 3 
+	LDA (ADDRESS_SPRITE_1),Y			; 5
+	STA .PLAYER_1_SPRITE					; 3 
 	DEX														; 2
 	LDY .YSTATE										; 3
-.precalc_sprite_done
+.done_precalc_players
 
 	JMP .next_scanline				; 3
 
@@ -1208,37 +1223,37 @@ game_play_area SUBROUTINE game_play_area
 	; 8 cycles remaining
 
 	; EVEN NUMBERED SCANLINES
-.display_obstacle
+.set_missile_sprites
 	; maximum 76 cycles between WSYNC
 	STA WSYNC									; 3
 	STA HMOVE									; 3
 
-	LDA OB_1_NUSIZ						; 3
+	LDA .MISSILE_1_NUSIZ			; 3
 	STA NUSIZ1								; 3
 
-	LDA OB_0_DRAW							; 3
+	LDA .MISSILE_0_SET				; 3
 	STA ENAM0									; 3
-	LDA OB_1_DRAW							; 3
+	LDA .MISSILE_1_SET				; 3
 	STA ENAM1									; 3
 
 	; maximum 22 cycles in HBLANK
 	;		21 cycles used
 	;		1 cycles until end of HBLANK
 
-.precalc_obstacles
+.precalc_missile_sprites
 	LDA (OB_0),Y							; 5
-	STA OB_0_DRAW							; 3
+	STA .MISSILE_0_SET				; 3
 	LDA (OB_1),Y							; 5
-	STA OB_1_DRAW							; 3
+	STA .MISSILE_1_SET				; 3
 
-	; precalculate branch placement in time for next .display_obstacle cycle
-.precalc_branch
-	LDA #TREE_NUSIZ_VAL				; 3
-	CPY OB_1_BRANCH						; 3
-	BNE .precalc_branch_done	; 2/3
-	LDA #BRANCH_NUSIZ_VAL			; 3
-.precalc_branch_done
-	STA OB_1_NUSIZ						; 3
+	; precalculate branch placement in time for next .set_missile_sprites cycle
+.precalc_missile_size
+	LDA #TREE_NUSIZ_VAL							; 3
+	CPY OB_1_BRANCH									; 3
+	BNE .done_precalc_missile_size	; 2/3
+	LDA #BRANCH_NUSIZ_VAL						; 3
+.done_precalc_missile_size
+	STA .MISSILE_1_NUSIZ						; 3
 
 	; longest path
 	;		61 cycles
@@ -1248,15 +1263,17 @@ game_play_area SUBROUTINE game_play_area
 	; 9 cycles remaining
 
 .next_scanline
-	; decrement current scanline - go to overscan kernel if we have reached zero
+	; decrement current scanline and jump to end of subroutine if we've reached zero
 	DEY												; 2
-	BEQ swamp									; 2/3
+	BEQ .end_game_play_area		; 2/3
 
-	; interlace sprite and obstacle drawing
+	; alternate setting of player and missile sprites
 	TYA												; 2
 	AND #%00000001						; 2
-	BEQ .display_obstacle	  	; 2/3
-	JMP .display_bird					; 3
+	BEQ .set_missile_sprites	; 2/3
+	JMP .set_player_sprites		; 3
+
+.end_game_play_area
 
 
 ; ----------------------------------
@@ -1264,7 +1281,7 @@ game_play_area SUBROUTINE game_play_area
 
 swamp SUBROUTINE swamp
 	; we've arrived here via the "BEQ swamp" call above in the .next_scanline of the game_play_area routine above.
-	; the last loop in the game_play_area loop before the successful branching would have been the .display_bird
+	; the last loop in the game_play_area loop before the successful branching would have been the .set_player_sprites
 	; loop. so, the available number of cycles left before the end of the scanline is:
 
 	; longest path
@@ -1311,10 +1328,6 @@ swamp SUBROUTINE swamp
 	LDA #$00
 	STA GRP0
 	STA GRP1
-
-	; make sure we don't draw the sprites at the top of next frame by accident
-	STA WINGS_DRAW
-	STA HEAD_DRAW
 
 	; wait another line before display - scoring
 	STA WSYNC
@@ -1430,7 +1443,7 @@ game_overscan SUBROUTINE game_overscan
 .swap_heads
 	STY SELECTED_HEAD
 	LDA HEADS_TABLE,Y
-	STA SPRITE_HEAD_ADDRESS
+	STA ADDRESS_SPRITE_1
 .heads_swapped
 	LDA SWCHB
 	STA STATE_SWCHB
