@@ -327,7 +327,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 	ENDM
 
 
-AC NEW_OBSTACLE
+	MAC NEW_OBSTACLE
 		; {obstacle number -> 0 or 1}
 		; clobbers A and X
 		; alters OB_0 or OB_1
