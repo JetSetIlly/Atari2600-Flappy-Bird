@@ -23,6 +23,8 @@ SCORING_BACKGROUND			= $00
 SCORE_COLOR							= $0E
 HISCORE_COLOR						= $F6
 
+OKAY_COLOR							= $0E
+
 ; ----------------------------------
 ; DATA - CONSTANTS
 
@@ -37,21 +39,13 @@ DEATH_DROWNING_SPEEED	= $01
 DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 values - first four bits set obstacle width
-; - last four bits set the player sprite size
+; - last four bits set the player sprite size and duplication number
 ; - the two nibbles will be OR'd to create the NUSIZ value
 OBSTACLE_WIDTH				= %00100000		; quad width
-OBSTACLE_WIDTH_BRANCH	= %00110000		; octuple width
+BRANCH_WIDTH					= %00110000		; octuple width
 WINGS_SIZE						= %00000101   ; single instance, double width
 HEAD_SIZE							= %00000000   ; single instance, single width
 SCORE_DIGITS_SIZE			= %00000101   ; single instance, double width
-
-WINGS_NUSIZ_VAL				= OBSTACLE_WIDTH | WINGS_SIZE
-TREE_NUSIZ_VAL				= OBSTACLE_WIDTH | HEAD_SIZE
-BRANCH_NUSIZ_VAL			= OBSTACLE_WIDTH_BRANCH | HEAD_SIZE
-
-; score area of the screen doesn't have any obstacles but we'll set it anyway
-; so that we don't have to reset at the beginning of the next frame
-SCORE_NUSIZ_VAL				= OBSTACLE_WIDTH | SCORE_DIGITS_SIZE
 
 ; start position at start of game 
 BIRD_VPOS_INIT					=	BIRD_HIGH / 4 * 3
@@ -111,7 +105,7 @@ FLIGHT_PATTERN					ds 2
 
 ; which bird/detail sprite to use in the display kernel
 ADDRESS_SPRITE_0				ds 2
-ADDRESS_SPRITE_1			ds 2
+ADDRESS_SPRITE_1				ds 2
 
 ; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
@@ -128,7 +122,7 @@ ADDRESS_SPRITE_1			ds 2
 ;		PATTERN_INDEX counts number of frames to game reset
 PATTERN_INDEX				ds 1
 
-; value for next foliage (playfield) - points to FOLIAGE
+; seed values for next foliage, obstacle and branch
 FOLIAGE_SEED				ds 1
 OBSTACLE_SEED				ds 1
 BRANCH_SEED					ds 1
@@ -179,8 +173,13 @@ _localF								ds 1
 	
 DATA_SEGMENT
 
+; ready text
+READY_TEXT
+READY_OK		HEX 00 EA AA AA AC EA 00 00
+READY_QM		HEX 00 18 00 1E 42 7E 00 00 
+READY_TEXT_LINES = SPRITE_LINES		; needs to be equal to SPRITE_LINES for display kernel to work
+
 ; sprite data
-; NOTE: first 00 in each sprite is a boundry byte - used to turn off sprite
 WINGS
 WINGS_UP				HEX	00 00 00 00 30 70 60 40 
 WINGS_FLAT			HEX	00 00 00 00 70 40 00 00
@@ -239,7 +238,7 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 	; make sure we start on a page boundary - we don't want to cross a page boundary
 	ORG $F100
 
-OBSTACLE_ENABLE_PRECALC 
+SET_OBSTACLE_TABLE 
 . HEX 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
@@ -343,7 +342,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 		ENDIF
 
 		LDX OBSTACLE_SEED
-		LDA #<OBSTACLE_ENABLE_PRECALC
+		LDA #<SET_OBSTACLE_TABLE
 		CLC
 		ADC OBSTACLES,X
 
@@ -529,7 +528,8 @@ game_state_init SUBROUTINE game_state_init
 	STA ADDRESS_SPRITE_1+1
 	STA DIGIT_ADDRESS_0+1
 	STA DIGIT_ADDRESS_1+1
-	LDA #>OBSTACLE_ENABLE_PRECALC
+
+	LDA #>SET_OBSTACLE_TABLE
 	STA OB_0+1
 	STA OB_1+1
 
@@ -557,7 +557,7 @@ game_state_init SUBROUTINE game_state_init
 
 	; width/number of wings sprite & obstacle 0
 	; doesn't change throughout game
-	LDA #WINGS_NUSIZ_VAL
+	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
 	STA NUSIZ0
 
 
@@ -693,18 +693,18 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	;		o no other changes to game state
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
-	JMP .continue_ready_state
+	JMP .display_bird_sprite
 
 	; update every three frames
 	; - same sequence as main play state
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
 	BEQ .update_bird
-	BMI .continue_ready_state
+	BMI .display_ready_logo
 
 .update_foliage
 	FOLIAGE_ANIMATION TRUE
-	JMP .continue_ready_state
+	JMP .display_bird_sprite
 
 .update_bird
 	; move bird towards play position if it's not there already
@@ -712,11 +712,31 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	CMP #BIRD_HPOS_PLAY_POS
 	BEQ .hpos_done
 	CLC
-	ADC #1		; not bothering to use FINE_POS_MOVE_RIGHT
+	ADC #1			; not bothering to use FINE_POS_MOVE_RIGHT
 	STA BIRD_HPOS
 .hpos_done
+	JMP .display_bird_sprite
 
-.continue_ready_state
+.display_ready_logo
+	LDA #OKAY_COLOR
+	STA COLUP0
+	STA COLUP1
+	LDA #<READY_OK
+	STA ADDRESS_SPRITE_0
+	LDA #<READY_QM
+	STA ADDRESS_SPRITE_1
+	LDA #74
+	FINE_POS_SCREEN RESP0
+	LDA #90
+	FINE_POS_SCREEN RESP1
+	JMP game_vblank_end
+
+.display_bird_sprite
+	LDA #<WINGS_FLAT
+	STA ADDRESS_SPRITE_0
+	LDY SELECTED_HEAD
+	LDA HEADS_TABLE,Y
+	STA ADDRESS_SPRITE_1
 	POSITION_BIRD_SPRITE	
 	JMP game_vblank_end
 	
@@ -1197,7 +1217,9 @@ game_play_area SUBROUTINE game_play_area
 	;		7 cycles until end of HBLANK
 
 .precalc_players_sprites
-	; if we're at scan line number BIRD_VPOS (ie. where the bird is) - turn on the sprite
+	; o if scanline (Y) is equal or less than BIRD_VPOS
+	; o and if X is not negative
+	;	o then stuff .PLAYER_0_SPRITE and .PLAYER_1_SPRITE with next line of sprite data
 	CPY BIRD_VPOS									; 2
 	BCS .done_precalc_players			; 2/3
 	TXA														; 2
@@ -1248,12 +1270,12 @@ game_play_area SUBROUTINE game_play_area
 
 	; precalculate branch placement in time for next .set_missile_sprites cycle
 .precalc_missile_size
-	LDA #TREE_NUSIZ_VAL							; 3
-	CPY OB_1_BRANCH									; 3
-	BNE .done_precalc_missile_size	; 2/3
-	LDA #BRANCH_NUSIZ_VAL						; 3
+	LDA #(BRANCH_WIDTH | HEAD_SIZE)						; 3
+	CPY OB_1_BRANCH														; 3
+	BEQ .done_precalc_missile_size						; 2/3
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)					; 3
 .done_precalc_missile_size
-	STA .MISSILE_1_NUSIZ						; 3
+	STA .MISSILE_1_NUSIZ											; 3
 
 	; longest path
 	;		61 cycles
@@ -1346,7 +1368,7 @@ display_score SUBROUTINE display_score
 	LDA #SCORING_BACKGROUND
 	STA	COLUBK
 
-	LDA #SCORE_NUSIZ_VAL
+	LDA #SCORE_DIGITS_SIZE
 	STA NUSIZ1
 	; NUSIZ0 is already a suitable size for displaying a scoring digit
 
@@ -1448,12 +1470,13 @@ game_overscan SUBROUTINE game_overscan
 	LDA SWCHB
 	STA STATE_SWCHB
 
-	; reset sprite image
+	; reset player sprites, color and NUSIZ after scoring subroutine
+	; o color may change again in the ready state for the "OK?" text
 	LDA #0
 	STA GRP0
 	STA GRP1
-
-	; reset colours
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	STA NUSIZ1
 	LDA #BIRD_COLOR
 	STA COLUP0
 	STA COLUP1
