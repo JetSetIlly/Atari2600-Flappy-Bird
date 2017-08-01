@@ -542,8 +542,7 @@ POS_SCREEN_CYCLES = 11
 	ENDM
 
 	MAC MULTI_COUNT_THREE_CMP
-		; {1} == 0 -> do NOT set carry bit before subtract
-		; {1} == n -> DO set carry bit before subtract
+		; {set carry bit before subtract -> boolean}
 
 		; result (depends on what you are trying to achieve)
 		;		- differentiating between three states:
@@ -555,7 +554,7 @@ POS_SCREEN_CYCLES = 11
 		LDA #%00000011						; 2
 		AND __MULTI_COUNT_STATE		; 3
 
-		IF {1} != 0
+		IF {1} != FALSE
 			SEC											; 2
 		ENDIF
 

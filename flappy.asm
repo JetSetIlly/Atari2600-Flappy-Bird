@@ -1167,6 +1167,10 @@ foliage SUBROUTINE foliage
 ; GAME - DISPLAY KERNEL - PLAY AREA
 
 game_play_area_prepare SUBROUTINE game_play_area_prepare
+.PF0 = _localA
+.PF1 = _localB
+.PF2 = _localC
+
 	; playfield priority - background trees behind obstacles
 	LDA #CTRLPF_PLAYAREA
 	STA CTRLPF
@@ -1177,22 +1181,22 @@ game_play_area_prepare SUBROUTINE game_play_area_prepare
 	MULTI_COUNT_TWO_CMP
 	BEQ .precalc_forest_static
 	LDA FOREST_MID_2
-	PHA
+	STA .PF2
 	LDA FOREST_MID_1
-	PHA
+	STA .PF1
 	LDA FOREST_MID_0
-	PHA
+	STA .PF0
 	JMP .end_forest_precalc
 .precalc_forest_static
 	LDA FOREST_STATIC_2
 	ORA FOREST_MID_2
-	PHA
+	STA .PF2
 	LDA FOREST_STATIC_1
 	ORA FOREST_MID_1
-	PHA
+	STA .PF1
 	LDA FOREST_STATIC_0
 	ORA FOREST_MID_0
-	PHA
+	STA .PF0
 .end_forest_precalc
 
 	STA WSYNC
@@ -1203,11 +1207,11 @@ game_play_area_prepare SUBROUTINE game_play_area_prepare
 	STA	COLUBK
 	LDA #FOREST_COLOR
 	STA COLUPF
-	PLA
+	LDA .PF0
 	STA PF0
-	PLA
+	LDA .PF1
 	STA PF1
-	PLA
+	LDA .PF2
 	STA PF2
 
 	; prepare for loop
@@ -1223,10 +1227,15 @@ game_play_area SUBROUTINE game_play_area
 .PLAYER_0_SPRITE = _localE
 .PLAYER_1_SPRITE	= _localF
 
-	; make sure we don't draw the sprites at the top of next frame by accident
-	LDA #0
+	; (re)initialise _local variables
+	LDA #$00
 	STA .PLAYER_0_SPRITE
 	STA .PLAYER_1_SPRITE
+	LDA #$02
+	STA .MISSILE_0_SET
+	STA .MISSILE_1_SET
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	STA .MISSILE_1_NUSIZ
 
 	; loop alternates between .set_player_sprites and .set_missile_sprites starting with .set_player_sprites
 	; Y register contains the number of VISIBLE_LINES_PLAYAREA remaining
