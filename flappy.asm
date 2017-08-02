@@ -45,6 +45,7 @@ OBSTACLE_WIDTH				= %00100000		; quad width
 BRANCH_WIDTH					= %00110000		; octuple width
 WINGS_SIZE						= %00000101   ; single instance, double width
 HEAD_SIZE							= %00000000   ; single instance, single width
+BORDER_SIZE						= %00000000		; single instacle, single_width
 SCORE_DIGITS_SIZE			= %00000101   ; single instance, double width
 
 ; start position at start of game 
@@ -80,16 +81,42 @@ VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
 BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
 
+	; DASM directives to output number of scanlines used
+	ECHO ""
+	ECHO "Scanline Layout"
+	ECHO "---------------"
+	ECHO "FOLIAGE = ", VISIBLE_LINES_FOLIAGE
+	ECHO "PLAYAREA = ", VISIBLE_LINES_PLAYAREA
+	ECHO "SWAMP = ", VISIBLE_LINES_SWAMP
+	ECHO "SCORE AREA = ", VISIBLE_LINES_SCOREAREA
+	ECHO "TOTAL = ", VISIBLE_LINES_FOLIAGE + VISIBLE_LINES_PLAYAREA + VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA, "(", DISPLAY_SCANLINES, ")"
+
+
 ; ----------------------------------
 ; DATA - RAM
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
+
 
 ; VCS_EXTRA.H SCOPE
 ; - variables beginning with _ are required by routines in vcs_extra.h
 __SLEEP_TABLE_JMP				ds 2
 __MULTI_COUNT_STATE			ds 1
 __STATE_INPT4						ds 1
+
+
+; LOCAL SCOPE
+; - can be resused between subroutines
+; - don't access these locations accept through aliases defined
+; in the subroutine that uses them
+
+_localA								ds 1
+_localB								ds 1
+_localC								ds 1
+_localD								ds 1
+_localE								ds 1
+_localF								ds 1
+
 
 ; GLOBAL SCOPE 
 ; - data that persists for a long time, say, frame to frame
@@ -150,22 +177,10 @@ HISCORE								ds 1
 DIGIT_ADDRESS_0				ds 2
 DIGIT_ADDRESS_1				ds 2
 
-
-; LOCAL SCOPE
-; - can be resused between subroutines
-; - don't access these locations accept through aliases defined
-; in the subroutine that uses them
-
-_localA								ds 1
-_localB								ds 1
-_localC								ds 1
-_localD								ds 1
-_localE								ds 1
-_localF								ds 1
-
-
 	; DASM directive - echo number of bytes left in RAM
-	ECHO "----",($100 - *) , "bytes of RAM left"
+	ECHO ""
+	ECHO "",($100 - *) , "bytes of RAM left"
+
 
 ; ----------------------------------
 ; DATA - DATA / OBSTACLE DATA, ETC.
@@ -240,7 +255,7 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 	ORG $F100
 
 SET_OBSTACLE_TABLE 
-. HEX 02 02 02
+. HEX 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
@@ -252,11 +267,9 @@ SET_OBSTACLE_TABLE
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
+; 32 scanlines (pixels) of 00 (this is the size of the gap)
 . HEX 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+. HEX 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
@@ -268,15 +281,10 @@ SET_OBSTACLE_TABLE
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
 . HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02 02 02 02 02 02 02 02
-. HEX 02 02 02
 
 ; list of obstacles to use
-OBSTACLES			HEX 25 35 45 55 65 75
-OBSTACLES_LEN	= 6
+OBSTACLES			HEX 05 15 25 35 45 55 65
+OBSTACLES_LEN	= 7
 
 ; list of branches
 ; note that we test for branch on the even scanlines of the play area so these values should be even
@@ -306,33 +314,8 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 ; ----------------------------------
 ; MACROS
 	MAC POSITION_BIRD_SPRITE
-		; no arguments
-		; clobbers A and X
-
-		LDA BIRD_HPOS
-		FINE_POS_SCREEN RESP0
-		LDA BIRD_HPOS
-		CLC
-		ADC #$07
-		FINE_POS_SCREEN RESP1
+		JSR SR_POSITION_BIRD_SPRITE
 	ENDM
-
-
-	MAC PROGRESS_POSITION_OBSTACLES
-		; {loop -> boolean) 
-		; clobbers A and X
-
-.progress_obstacles
-		FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, {1}
-		FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, {1}
-
-.position_obstacles
-		LDA OB_0_HPOS
-		FINE_POS_SCREEN RESM0
-		LDA OB_1_HPOS
-		FINE_POS_SCREEN RESM1
-	ENDM
-
 
 	MAC NEW_OBSTACLE
 		; {obstacle number -> 0 or 1}
@@ -561,11 +544,6 @@ game_state_init SUBROUTINE game_state_init
 	LDA FOREST_MID_2_INIT
 	STA FOREST_MID_2
 
-	; width/number of wings sprite & obstacle 0
-	; doesn't change throughout game
-	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
-	STA NUSIZ0
-
 
 ; ----------------------------------
 ; GAME - RESTART
@@ -606,6 +584,14 @@ game_restart SUBROUTINE game_restart
 	STA OB_0_SPEED
 	LDA #0
 	STA OB_1_SPEED 
+
+	; size/width of obstacles and player sprites changes frequently
+	; throughout the game.
+	; TODO: NUSIZ summary for entire game
+	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
+	STA NUSIZ0
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	STA NUSIZ1
 
 	; put game into ready state
 	;		o reset score
@@ -692,6 +678,7 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 .end_ready_state
 	; put into approach state
 	;		o set correct flight pattern
+	;		o display_bird_sprite will set up the sprite data
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
 
@@ -707,11 +694,12 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
 	BEQ .update_bird
-	BMI .display_ready_logo
+	BPL .update_foliage
+	JMP .prepare_display
 
 .update_foliage
 	FOLIAGE_ANIMATION TRUE
-	JMP .display_bird_sprite
+	JMP .prepare_display
 
 .update_bird
 	; update PATTERN_INDEX (cycling if necessary)
@@ -726,6 +714,13 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	ADC #1			; not bothering to use FINE_POS_MOVE_RIGHT
 	STA BIRD_HPOS
 .hpos_done
+	JMP .prepare_display
+
+.prepare_display
+	MULTI_COUNT_TWO_CMP
+	BEQ .far_jmp_sprite
+	JMP .display_ready_logo
+.far_jmp_sprite
 	JMP .display_bird_sprite
 
 .display_ready_logo
@@ -763,18 +758,27 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	JMP game_vblank_end
 	
 
+
 ; ----------------------------------
 ; GAME - VBLANK - DEATH - DROWN
 
 game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	; slow down death animation
 	MULTI_COUNT_THREE_CMP 0
-	BNE .continue_drowning
+	BEQ .update_bird
+	BPL .update_foliage
+	JMP .prepare_display
 
-	;LDA BIRD_HPOS
-	;CLC
-	;ADC #DEATH_DROWNING_SPEEED
-	;STA BIRD_HPOS
+.update_foliage
+	FOLIAGE_ANIMATION FALSE
+	JMP .prepare_display
+
+.update_bird
+	; propel bird forward during drowning
+	LDA BIRD_HPOS
+	CLC
+	ADC #DEATH_DROWNING_SPEEED
+	STA BIRD_HPOS
 
 	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
 	LDX PATTERN_INDEX
@@ -787,13 +791,12 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	DEX
 	STX BIRD_VPOS
 
-	FOLIAGE_ANIMATION FALSE
-	JMP .continue_drowning
+	JMP .prepare_display
 
 .drowning_end
 	JMP game_restart
 
-.continue_drowning
+.prepare_display
 	POSITION_BIRD_SPRITE
 	JMP game_vblank_end
 
@@ -806,10 +809,15 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	; note that we do all updating on the same frame, unlike during PLAY_STATE_PLAY
 	; where we update different elements (sprite, foliage) on different frames
 	MULTI_COUNT_THREE_CMP 0
-	BEQ .update_display_elements
-	JMP .continue_collision
+	BEQ .update_bird
+	BPL .update_foliage
+	JMP .prepare_display
 
-.update_display_elements
+.update_foliage
+	FOLIAGE_ANIMATION FALSE
+	JMP .prepare_display
+
+.update_bird
 	; alter wing position - simulates furious flapping
 	LDA ADDRESS_SPRITE_0
 	CMP #<WINGS_UP
@@ -829,8 +837,6 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	STA ADDRESS_SPRITE_0
 .wings_updated
 
-	FOLIAGE_ANIMATION FALSE
-
 	; apply flight pattern and check for drowning state
 	APPLY_FLIGHT_PATTERN
 	CMP #BIRD_LOW
@@ -838,10 +844,10 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 
 	; limit bird height
 	CMP #BIRD_HIGH
-	BCC .update_flight_pattern_index
+	BCC .update_pattern_idx
 	LDA #BIRD_HIGH
 
-.update_flight_pattern_index 
+.update_pattern_idx 
 	STA BIRD_VPOS
 	UPDATE_FLIGHT_PATTERN FALSE
 
@@ -851,12 +857,12 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	ADC #DEATH_COLLISION_SPEED
 	STA BIRD_HPOS
 
-	JMP .continue_collision
+	JMP .prepare_display
 
 .enter_drowning_state
 	PLAY_STATE_DROWNING
 
-.continue_collision
+.prepare_display
 	POSITION_BIRD_SPRITE
 	JMP game_vblank_end
 
@@ -1014,7 +1020,7 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	; check to see if we've reached top of flying area (ie. top of screen)
 	CMP #BIRD_HIGH
 	BCS .limit_height
-	JMP .update_flight_pattern_index
+	JMP .update_pattern_idx
 
 .begin_drowning
 	PLAY_STATE_DROWNING
@@ -1023,7 +1029,7 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 .limit_height
 	LDA #BIRD_HIGH
 
-.update_flight_pattern_index
+.update_pattern_idx
 	STA BIRD_VPOS 
 	UPDATE_FLIGHT_PATTERN FALSE
 
@@ -1034,9 +1040,17 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 ; ----------------------------------
 ; GAME - VBLANK - POSITION SPRITES / SCORING
 
+
 game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 	POSITION_BIRD_SPRITE
-	PROGRESS_POSITION_OBSTACLES TRUE
+
+	; progress and then position osbtacles
+	FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, TRUE
+	FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, TRUE
+	LDA OB_0_HPOS
+	FINE_POS_SCREEN RESM0
+	LDA OB_1_HPOS
+	FINE_POS_SCREEN RESM1
 
 .scoring_check
 	LDA BIRD_HPOS
@@ -1176,8 +1190,7 @@ game_play_area_prepare SUBROUTINE game_play_area_prepare
 	STA CTRLPF
 
 	; we want to stuff the playfield with new data as quickly as possible
-	; prepare playfield data according to which frame (odd/even) and
-	; push results onto stack
+	; prepare playfield data according to which frame (odd/even)
 	MULTI_COUNT_TWO_CMP
 	BEQ .precalc_forest_static
 	LDA FOREST_MID_2
@@ -1409,8 +1422,8 @@ display_score SUBROUTINE display_score
 	STA	COLUBK
 
 	LDA #SCORE_DIGITS_SIZE
+	STA NUSIZ0
 	STA NUSIZ1
-	; NUSIZ0 is already a suitable size for displaying a scoring digit
 
 	MULTI_COUNT_TWO_CMP
 	BEQ .prep_hiscore
@@ -1512,9 +1525,12 @@ game_overscan SUBROUTINE game_overscan
 
 	; reset player sprites, color and NUSIZ after scoring subroutine
 	; o color may change again in the ready state for the "OK?" text
+	; o NUSIZ may change in drowning play state
 	LDA #0
 	STA GRP0
 	STA GRP1
+	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
+	STA NUSIZ0
 	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
 	STA NUSIZ1
 	LDA #BIRD_COLOR
@@ -1543,6 +1559,20 @@ game_overscan SUBROUTINE game_overscan
 
 	JMP game_vsync
 
+
+; ----------------------------------
+; SUBROUTINES
+
+SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
+		; no arguments
+		; clobbers A and X
+		LDA BIRD_HPOS
+		FINE_POS_SCREEN RESP0
+		LDA BIRD_HPOS
+		CLC
+		ADC #$07
+		FINE_POS_SCREEN RESP1
+		RTS
 
 ; ----------------------------------
 ; MACHINE INITIALISATION
