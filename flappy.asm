@@ -3,12 +3,13 @@
 	include vcs.h
 	include macro.h
 	include vcs_extra.h
+	include dasm_extra.h
 
 ; ----------------------------------
 ; DATA - COLOURS
 
 ; colours
-BIRD_COLOR							= $00
+BIRD_COLOR							= $06
 
 FOLIAGE_BACKGROUND			=	$D2
 FOLIAGE_COLOR						= $D0
@@ -82,14 +83,13 @@ BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
 BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
 
 	; DASM directives to output number of scanlines used
-	ECHO ""
-	ECHO "Scanline Layout"
-	ECHO "---------------"
-	ECHO "FOLIAGE = ", VISIBLE_LINES_FOLIAGE
-	ECHO "PLAYAREA = ", VISIBLE_LINES_PLAYAREA
-	ECHO "SWAMP = ", VISIBLE_LINES_SWAMP
-	ECHO "SCORE AREA = ", VISIBLE_LINES_SCOREAREA
-	ECHO "TOTAL = ", VISIBLE_LINES_FOLIAGE + VISIBLE_LINES_PLAYAREA + VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA, "(", DISPLAY_SCANLINES, ")"
+	DASM_MESSAGE "Scanline Layout"
+	DASM_MESSAGE "---------------"
+	DASM_MESSAGE "FOLIAGE = ", VISIBLE_LINES_FOLIAGE
+	DASM_MESSAGE "PLAYAREA = ", VISIBLE_LINES_PLAYAREA
+	DASM_MESSAGE "SWAMP = ", VISIBLE_LINES_SWAMP
+	DASM_MESSAGE "SCORE AREA = ", VISIBLE_LINES_SCOREAREA
+	DASM_MESSAGE "TOTAL = ", VISIBLE_LINES_FOLIAGE + VISIBLE_LINES_PLAYAREA + VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA, "(", DISPLAY_SCANLINES, ")"
 
 
 ; ----------------------------------
@@ -116,6 +116,7 @@ _localC								ds 1
 _localD								ds 1
 _localE								ds 1
 _localF								ds 1
+_localG								ds 1
 
 
 ; GLOBAL SCOPE 
@@ -178,8 +179,7 @@ DIGIT_ADDRESS_0				ds 2
 DIGIT_ADDRESS_1				ds 2
 
 	; DASM directive - echo number of bytes left in RAM
-	ECHO ""
-	ECHO "",($100 - *) , "bytes of RAM left"
+	DASM_MESSAGE "",($100 - *) , "bytes of RAM left"
 
 
 ; ----------------------------------
@@ -323,8 +323,7 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		; alters OB_0 or OB_1
 
 		IF {1} != 0 && {1} != 1
-			ECHO "MACRO ERROR: 'NEW_OBSTACLE': {1} must be 0 or 1"
-			ERR
+			DASM_MACRO_ERROR "'NEW_OBSTACLE': {1} must be 0 or 1"
 		ENDIF
 
 		LDX OBSTACLE_SEED
@@ -1156,9 +1155,11 @@ foliage SUBROUTINE foliage
 
 	; start drawing obstacles if we're halfway through the foliage area
 	CPY #VISIBLE_LINES_FOLIAGE / 2
-	BNE .reset_foliage_block_count
+	BCS .reset_foliage_block_count
 	LDA #$2
+	AND $00
 	STA ENAM0
+	AND $00
 	STA ENAM1
 
 .reset_foliage_block_count
@@ -1287,7 +1288,7 @@ game_play_area SUBROUTINE game_play_area
 	LDY .YSTATE										; 3
 .done_precalc_players
 
-	JMP .next_scanline				; 3
+	JMP .next_scanline						; 3
 
 	; maximum 76 cycles between WSYNC
 	; longest path
@@ -1317,8 +1318,10 @@ game_play_area SUBROUTINE game_play_area
 
 .precalc_missile_sprites
 	LDA (OB_0),Y							; 5
+	AND $00
 	STA .MISSILE_0_SET				; 3
 	LDA (OB_1),Y							; 5
+	AND $00
 	STA .MISSILE_1_SET				; 3
 
 	; precalculate branch placement in time for next .set_missile_sprites cycle
