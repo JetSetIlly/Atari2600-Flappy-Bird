@@ -24,7 +24,7 @@ SCORING_BACKGROUND			= $00
 SCORE_COLOR							= $0E
 HISCORE_COLOR						= $F6
 
-OKAY_COLOR							= $0E
+OKAY_COLOR							= $2E
 
 ; ----------------------------------
 ; DATA - CONSTANTS
@@ -77,6 +77,9 @@ VISIBLE_LINES_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_L
 VISIBLE_LINES_SWAMP				= $04
 VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
+
+; point at which to change the sprite color - to enable effective swamp colouring
+SWAMP_LINE = $03
 
 ; screen boundaries for bird sprite
 BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
@@ -1255,6 +1258,50 @@ game_play_area SUBROUTINE game_play_area
 	; Y register contains the number of VISIBLE_LINES_PLAYAREA remaining
 	; X register contains number of SPRITE_LINES remaining
 
+	; EVEN NUMBERED SCANLINES
+.set_missile_sprites
+	STA WSYNC									; 3
+	STA HMOVE									; 3
+
+	LDA .MISSILE_1_NUSIZ			; 3
+	STA NUSIZ1								; 3
+
+	LDA .MISSILE_0_SET				; 3
+	STA ENAM0									; 3
+	LDA .MISSILE_1_SET				; 3
+	STA ENAM1									; 3
+
+	; maximum 22 cycles in HBLANK
+	;		21 cycles used
+	;		1 cycles until end of HBLANK
+
+.precalc_missile_sprites
+	LDA (OB_0),Y							; 5
+	AND $00										; 2
+	STA .MISSILE_0_SET				; 3
+	LDA (OB_1),Y							; 5
+	AND $00										; 2
+	STA .MISSILE_1_SET				; 3
+
+	; precalculate branch placement in time for next .set_missile_sprites cycle
+.precalc_missile_size
+	LDA #(BRANCH_WIDTH | HEAD_SIZE)						; 3
+	CPY OB_1_BRANCH														; 3
+	BEQ .done_precalc_missile_size						; 2/3
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)					; 3
+.done_precalc_missile_size
+	STA .MISSILE_1_NUSIZ											; 3
+
+	JMP .next_scanline												; 3
+
+	; maximum 76 cycles between WSYNC
+	; longest path
+	;		52 cycles
+	; + 13 for ".next_scanline"
+	; + 3 for WSYNC
+	; = 68
+	; 2 cycles remaining
+
 	; ODD NUMBERED SCANLINES
 .set_player_sprites
 	STA WSYNC									; 3
@@ -1288,57 +1335,21 @@ game_play_area SUBROUTINE game_play_area
 	LDY .YSTATE										; 3
 .done_precalc_players
 
-	JMP .next_scanline						; 3
+	; change color of player/obstacle 0 for last few lines
+	; o we use this to animate a water splash
+	; o we'll hardly notice the different coloration at the foot of obstacle 0
+	CPY #SWAMP_LINE								; 2
+	BNE .next_scanline						; 2/3
+	LDA #SWAMP_COLOR							; 2
+	STA COLUP0										; 3
 
 	; maximum 76 cycles between WSYNC
 	; longest path
-	;   52 cycles
+	;   58 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 68
-	; 8 cycles remaining
-
-	; EVEN NUMBERED SCANLINES
-.set_missile_sprites
-	; maximum 76 cycles between WSYNC
-	STA WSYNC									; 3
-	STA HMOVE									; 3
-
-	LDA .MISSILE_1_NUSIZ			; 3
-	STA NUSIZ1								; 3
-
-	LDA .MISSILE_0_SET				; 3
-	STA ENAM0									; 3
-	LDA .MISSILE_1_SET				; 3
-	STA ENAM1									; 3
-
-	; maximum 22 cycles in HBLANK
-	;		21 cycles used
-	;		1 cycles until end of HBLANK
-
-.precalc_missile_sprites
-	LDA (OB_0),Y							; 5
-	AND $00
-	STA .MISSILE_0_SET				; 3
-	LDA (OB_1),Y							; 5
-	AND $00
-	STA .MISSILE_1_SET				; 3
-
-	; precalculate branch placement in time for next .set_missile_sprites cycle
-.precalc_missile_size
-	LDA #(BRANCH_WIDTH | HEAD_SIZE)						; 3
-	CPY OB_1_BRANCH														; 3
-	BEQ .done_precalc_missile_size						; 2/3
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)					; 3
-.done_precalc_missile_size
-	STA .MISSILE_1_NUSIZ											; 3
-
-	; longest path
-	;		61 cycles
-	; + 13 for ".next_scanline"
-	; + 3 for WSYNC
-	; = 61
-	; 9 cycles remaining
+	; = 74
+	; 2 cycles remaining
 
 .next_scanline
 	; decrement current scanline and jump to end of subroutine if we've reached zero
