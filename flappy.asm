@@ -79,7 +79,7 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 
 ; point at which to change the sprite color - to enable effective swamp colouring
-SWAMP_LINE = $03
+VIRTUAL_SWAMP_LINE = $03
 
 ; screen boundaries for bird sprite
 BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
@@ -1296,11 +1296,11 @@ game_play_area SUBROUTINE game_play_area
 
 	; maximum 76 cycles between WSYNC
 	; longest path
-	;		52 cycles
-	; + 13 for ".next_scanline"
+	;		58 cycles
+	; + 11 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 68
-	; 2 cycles remaining
+	; = 72
+	; 4 cycles remaining
 
 	; ODD NUMBERED SCANLINES
 .set_player_sprites
@@ -1321,7 +1321,7 @@ game_play_area SUBROUTINE game_play_area
 	; o if scanline (Y) is equal or less than BIRD_VPOS
 	; o and if X is not negative
 	;	o then stuff .PLAYER_0_SPRITE and .PLAYER_1_SPRITE with next line of sprite data
-	CPY BIRD_VPOS									; 2
+	CPY BIRD_VPOS									; 3
 	BCS .done_precalc_players			; 2/3
 	TXA														; 2
 	BMI .done_precalc_players			; 2/3
@@ -1338,18 +1338,30 @@ game_play_area SUBROUTINE game_play_area
 	; change color of player/obstacle 0 for last few lines
 	; o we use this to animate a water splash
 	; o we'll hardly notice the different coloration at the foot of obstacle 0
-	CPY #SWAMP_LINE								; 2
+	CPY #VIRTUAL_SWAMP_LINE				; 2
 	BNE .next_scanline						; 2/3
 	LDA #SWAMP_COLOR							; 2
 	STA COLUP0										; 3
 
 	; maximum 76 cycles between WSYNC
+	;
+	; scanline above bird position
+	;		26 cycles
+	;
+	; scanline below bird position
+	;		30 cycles	- above or below virtual swamp line
+	;		34 cycles	- at virtual swamp line
+	; 
+	; scanline at bird position
+	;		55 cycles - above or below virtual swamp line
+	;		59 cycles - at virtual swamp line
+	;
 	; longest path
-	;   58 cycles
+	;   59 cycles
 	; + 13 for ".next_scanline"
 	; + 3 for WSYNC
-	; = 74
-	; 2 cycles remaining
+	; = 75
+	; 1 cycle remaining
 
 .next_scanline
 	; decrement current scanline and jump to end of subroutine if we've reached zero
@@ -1371,21 +1383,33 @@ game_play_area SUBROUTINE game_play_area
 swamp SUBROUTINE swamp
 	; we've arrived here via the "BEQ swamp" call above in the .next_scanline of the game_play_area routine above.
 	; the last loop in the game_play_area loop before the successful branching would have been the .set_player_sprites
-	; loop. so, the available number of cycles left before the end of the scanline is:
+	; loop.
 
-	; longest path
-	;   52 cycles
+	; the scanline at this point is, by defintion, below the virtual swamp line (if VIRTUAL_SWAMP_LINE > 0)
+	; therefore, if the bird is being drawn at the bottom of the play area the longest path is as follows:
+	;
+	; 55 cycles	
 	; + 5 for ".next_scanline" (fewer than normal because of the succesful "BEQ swamp")
 	; + 3 for WSYNC
-	; = 60
-	; 16 cycles remaining
+	; = 63
+	; 13 cycles remaining
+	;
+	; if the bird is above the scanline position then:
+	;
+	; 30 cycles	
+	; + 5 for ".next_scanline" (fewer than normal because of the succesful "BEQ swamp")
+	; + 3 for WSYNC
+	; = 38
+	; 38 cycles remaining
 
 .draw_swamp
 	; preload registers so that we're not wasting cycles in the HBLANK
 	LDY FOLIAGE_SEED			; 3
 	LDX FOLIAGE,Y					; 4
-	LDA #0
-	LDY #SWAMP_BACKGROUND
+	LDA #0								; 2
+	LDY #SWAMP_BACKGROUND ; 3
+
+	; 1 cycle remaining (worst case)
 
 	STA WSYNC
 	STA HMOVE
