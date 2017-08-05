@@ -645,15 +645,3 @@ POS_SCREEN_CYCLES = 11
 		; 5 cycles
 	ENDM
 
-; -----------------------------------
-; OTHER (REFERENCE) ROUTINES
-
-	MAC __MULT_3
-	; MULTIPLY BY 3
-		TSX				; store stack position
-		PHA				; stack acumulator value
-		ASL				; multiply by 2
-		CLC
-		ADC 0,X		; add last stack value - cumulative effect is multiplying by three
-		TXS				; intentionally clobber SP - resetting stack position
-	ENDM
