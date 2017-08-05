@@ -17,8 +17,8 @@ FOLIAGE_COLOR						= $D0
 FOREST_BACKGROUND				=	$D2
 FOREST_COLOR						= $E0
 
-SWAMP_BACKGROUND				= $B0
-SWAMP_COLOR							= $B2
+SWAMP_BACKGROUND				= $B2
+SWAMP_COLOR							= $B0
 
 SCORING_BACKGROUND			= $00
 SCORE_COLOR							= $0E
@@ -36,7 +36,6 @@ CTRLPF_SWAMP    = %00100100
 
 ; death rates
 DEATH_COLLISION_SPEED	= $02 ; speed at which player sprite moves foward during death collision
-DEATH_DROWNING_SPEEED	= $01
 DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
 
 ; NUSIZ0 and NUSIZ1 values - first four bits set obstacle width
@@ -53,7 +52,6 @@ SCORE_DIGITS_SIZE			= %00000101   ; single instance, double width
 BIRD_VPOS_INIT					=	BIRD_HIGH / 4 * 3
 BIRD_HPOS_INIT					=	$00
 BIRD_HPOS_PLAY_POS			=	$0C
-
 
 ; play state -- death states are all negative
 PLAY_STATE_PLAY					= $00
@@ -79,7 +77,8 @@ VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
 VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 
 ; point at which to change the sprite color - to enable effective swamp colouring
-VIRTUAL_SWAMP_LINE = $03
+; the value should be odd because it is checked for on the odd scanlines
+SPLASH_LINE = $07
 
 ; screen boundaries for bird sprite
 BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
@@ -138,6 +137,7 @@ ADDRESS_SPRITE_1				ds 2
 
 BIRD_VPOS								ds 1	; between BIRD_HIGH and BIRD_LOW
 BIRD_HPOS								ds 1	; current horizontal position of bird (in pixels)
+BIRD_HEAD_OFFSET				ds 1	; number of pixels the head is offset from BIRD_HPOS
 
 ; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
@@ -172,6 +172,10 @@ OB_1_SPEED					ds 1
 FOREST_MID_0					ds 1
 FOREST_MID_1					ds 1
 FOREST_MID_2					ds 1
+
+; colour of player/obstacle 0 below the splash line
+; o changes depending on game state
+SPLASH_COLOR					ds 1
 
 ; player score
 SCORE									ds 1
@@ -214,7 +218,8 @@ NUM_HEADS				= 4
 
 SPRITE_LINES		=	7
 
-SPLASH_FRAME_1A	HEX 42 24
+_SPLASH_FRAME_BUFFER HEX 00 
+SPLASH_FRAME HEX 00 18 24 24 42 00 00 00
 
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
@@ -412,17 +417,26 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		; put game into drowning state
 		;		o make sure bird is at the lowest position
 		;		o use pattern index to measure length of drowning animation
-		;		o use wings up sprite for drowning sprite
-
+		;		o point ADDRESS_SPRITE_0 to SPLASH_FRAME
+		;		o alter BIRD_HEAD_OFFSET and BIRD_HPOS
+		;		o SPLASH_COLOR = SWAMP_COLOR
 		LDA #BIRD_LOW
 		STA BIRD_VPOS
+		; --
 		LDA #DEATH_DROWNING_LEN
 		STA PATTERN_INDEX
-		LDA #<WINGS_UP
+		; --
+		LDA #<SPLASH_FRAME
 		STA ADDRESS_SPRITE_0
+		; --
 		LDA #PLAY_STATE_DEATH_DROWN
 		STA PLAY_STATE
-
+		; --
+		DEC BIRD_HEAD_OFFSET
+		INC BIRD_HPOS
+		; --
+		LDA #SWAMP_COLOR
+		STA SPLASH_COLOR
 	ENDM
 
 	MAC FOLIAGE_ANIMATION
@@ -519,7 +533,6 @@ game_state_init SUBROUTINE game_state_init
 	LDA #>FLIGHT_PATTERNS
 	STA FLIGHT_PATTERN+1
 
-
 	LDA #>SET_OBSTACLE_TABLE
 	STA OB_0+1
 	STA OB_1+1
@@ -599,6 +612,8 @@ game_restart SUBROUTINE game_restart
 	;		o reset score
 	;		o initialise vertical and horizontal position
 	;		o use flat wings sprite at start
+	;		o reset BIRD_HEAD_OFFSET
+	;		o SPLASH_COLOR = BIRD_COLOUR
 	LDA #$0
 	STA SCORE
 	LDA #BIRD_VPOS_INIT
@@ -612,6 +627,10 @@ game_restart SUBROUTINE game_restart
 	LDA #<READY_FLIGHT_PATTERN
 	STA FLIGHT_PATTERN
 	RESET_FLIGHT_PATTERN FALSE
+	LDA #$07
+	STA BIRD_HEAD_OFFSET
+	LDA #BIRD_COLOR
+	STA SPLASH_COLOR
 
 
 ; ----------------------------------
@@ -776,22 +795,16 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	JMP .prepare_display
 
 .update_bird
-	; propel bird forward during drowning
-	LDA BIRD_HPOS
-	CLC
-	ADC #DEATH_DROWNING_SPEEED
-	STA BIRD_HPOS
-
 	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
-	LDX PATTERN_INDEX
+	DEC PATTERN_INDEX
 	BEQ .drowning_end
-	DEX 
-	STX PATTERN_INDEX
+
+	; propel bird forward during drowning
+	;INC BIRD_HEAD_OFFSET
 
 	; decrease bird sprite position
-	LDX BIRD_VPOS
-	DEX
-	STX BIRD_VPOS
+	DEC BIRD_VPOS
+	DEC ADDRESS_SPRITE_0
 
 	JMP .prepare_display
 
@@ -1337,10 +1350,9 @@ game_play_area SUBROUTINE game_play_area
 
 	; change color of player/obstacle 0 for last few lines
 	; o we use this to animate a water splash
-	; o we'll hardly notice the different coloration at the foot of obstacle 0
-	CPY #VIRTUAL_SWAMP_LINE				; 2
+	CPY #SPLASH_LINE							; 2
 	BNE .next_scanline						; 2/3
-	LDA #SWAMP_COLOR							; 2
+	LDA SPLASH_COLOR							; 3
 	STA COLUP0										; 3
 
 	; maximum 76 cycles between WSYNC
@@ -1385,7 +1397,7 @@ swamp SUBROUTINE swamp
 	; the last loop in the game_play_area loop before the successful branching would have been the .set_player_sprites
 	; loop.
 
-	; the scanline at this point is, by defintion, below the virtual swamp line (if VIRTUAL_SWAMP_LINE > 0)
+	; the scanline at this point is, by defintion, below the virtual swamp line (if SPLASH_LINE > 0)
 	; therefore, if the bird is being drawn at the bottom of the play area the longest path is as follows:
 	;
 	; 55 cycles	
@@ -1608,7 +1620,7 @@ SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
 		FINE_POS_SCREEN RESP0
 		LDA BIRD_HPOS
 		CLC
-		ADC #$07
+		ADC BIRD_HEAD_OFFSET
 		FINE_POS_SCREEN RESP1
 		RTS
 

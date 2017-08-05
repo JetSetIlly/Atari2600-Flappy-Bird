@@ -160,7 +160,7 @@ POS_SCREEN_CYCLES = 11
 		ELSE
 			LDA #(01 + ({3} * -{4}))
 		ENDIF
-		IF {2} != 0
+		IF {2} != NULL
 			STA {2}
 		ENDIF
 		FINE_POS_SCREEN {1}
