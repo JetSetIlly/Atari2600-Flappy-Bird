@@ -162,6 +162,7 @@ BRANCH_SEED					ds 1
 ; obstacles
 OB_0								ds 2
 OB_1								ds 2
+OB_0_BRANCH					ds 1
 OB_1_BRANCH					ds 1
 OB_0_HPOS						ds 1
 OB_1_HPOS						ds 1
@@ -341,6 +342,7 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 
 		IF {1} == 0
 			STA OB_0
+			STA OB_0_BRANCH
 		ENDIF
 
 		IF {1} == 1
@@ -420,7 +422,6 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		;		o point ADDRESS_SPRITE_0 to SPLASH_FRAME
 		;		o alter BIRD_HEAD_OFFSET and BIRD_HPOS
 		;		o SPLASH_COLOR = SWAMP_COLOR
-		;		o get rid of branch - branch won't be reset until next call to NEW_OBSTACLE
 		;		o obstacle definition swap phase correction
 		LDA #BIRD_LOW
 		STA BIRD_VPOS
@@ -440,9 +441,6 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		LDA #SWAMP_COLOR
 		STA SPLASH_COLOR
 		; --
-		LDA #$FF
-		STA OB_1_BRANCH
-		; --
 		; perform a phantom swap before we get to the .prepare_display portion of
 		; game_vblank_death_drown subroutine -- if we don't do this we may start on
 		; the "wrong" frame and be "out of phase" when swapping obstacle definitions
@@ -454,6 +452,12 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		STA OB_0
 		PLA
 		STA OB_1
+		LDA OB_0_BRANCH
+		PHA
+		LDA OB_1_BRANCH
+		STA OB_0_BRANCH
+		PLA
+		STA OB_1_BRANCH
 .no_adjust
 
 	ENDM
@@ -830,7 +834,9 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 .prepare_display
 	POSITION_BIRD_SPRITE
 
-	; alternate obstacle 0 and 1 positions and display using only obstacle 1
+	; flicker obstacle 0 and 1 positions and display both using only obstacle 1
+	; hiding obstacle 0 in the activision border - we don't want the change of color to be visible
+	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
 	MULTI_COUNT_TWO_CMP
 	BEQ .show_obstacle_1
 	LDA OB_0_HPOS
@@ -840,10 +846,6 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 .flipped_obstacles
 	FINE_POS_SCREEN RESM1
 
-	; hide missile 0 in the activision border - we don't want the change of color to be visible
-	; - we don't really need to do this every frame
-	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
-
 	; swap obstacle defintions
 	LDA OB_0
 	PHA
@@ -851,6 +853,12 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	STA OB_0
 	PLA
 	STA OB_1
+	LDA OB_0_BRANCH
+	PHA
+	LDA OB_1_BRANCH
+	STA OB_0_BRANCH
+	PLA
+	STA OB_1_BRANCH
 
 	JMP game_vblank_end
 
