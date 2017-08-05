@@ -3,6 +3,7 @@
 	include vcs.h
 	include macro.h
 	include vcs_extra.h
+	include macro_extra.h
 	include dasm_extra.h
 
 ; ----------------------------------
@@ -446,18 +447,8 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		; the "wrong" frame and be "out of phase" when swapping obstacle definitions
 		MULTI_COUNT_TWO_CMP
 		BEQ .no_adjust
-		LDA OB_0
-		PHA
-		LDA OB_1
-		STA OB_0
-		PLA
-		STA OB_1
-		LDA OB_0_BRANCH
-		PHA
-		LDA OB_1_BRANCH
-		STA OB_0_BRANCH
-		PLA
-		STA OB_1_BRANCH
+		SWAP OB_0, OB_1
+		SWAP OB_0_BRANCH, OB_1_BRANCH
 .no_adjust
 
 	ENDM
@@ -847,18 +838,8 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	FINE_POS_SCREEN RESM1
 
 	; swap obstacle defintions
-	LDA OB_0
-	PHA
-	LDA OB_1
-	STA OB_0
-	PLA
-	STA OB_1
-	LDA OB_0_BRANCH
-	PHA
-	LDA OB_1_BRANCH
-	STA OB_0_BRANCH
-	PLA
-	STA OB_1_BRANCH
+	SWAP OB_0, OB_1
+	SWAP OB_0_BRANCH, OB_1_BRANCH
 
 	JMP game_vblank_end
 
