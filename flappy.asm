@@ -37,7 +37,7 @@ CTRLPF_SWAMP    = %00100100
 
 ; death rates
 DEATH_COLLISION_SPEED	= $02 ; speed at which player sprite moves foward during death collision
-DEATH_DROWNING_LEN		= $0C ; should be the same BIRD_LOW
+DEATH_DROWNING_LEN		= $0D ; should be the same BIRD_LOW + 1
 
 ; NUSIZ0 and NUSIZ1 values - first four bits set obstacle width
 ; - last four bits set the player sprite size and duplication number
@@ -59,7 +59,7 @@ PLAY_STATE_PLAY					= $00
 PLAY_STATE_APPROACH			= $01
 PLAY_STATE_READY				= $02
 PLAY_STATE_COLLISION		= $FF
-PLAY_STATE_DEATH_DROWN	= $FE
+PLAY_STATE_DROWN				= $FE
 
 ; visible scan line usage
 ; =======================
@@ -150,7 +150,7 @@ BIRD_HEAD_OFFSET				ds 1	; number of pixels the head is offset from BIRD_HPOS
 ;	then
 ;		PATTERN_INDEX indexes FLIGHT_PATTERN
 ;
-; if PLAY_STATE == PLAY_STATE_DEATH_DROWN
+; if PLAY_STATE == PLAY_STATE_DROWN
 ;	then
 ;		PATTERN_INDEX counts number of frames to game reset
 PATTERN_INDEX				ds 1
@@ -343,6 +343,7 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 
 		IF {1} == 0
 			STA OB_0
+			LDA #$00
 			STA OB_0_BRANCH
 		ENDIF
 
@@ -412,7 +413,7 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		STA PATTERN_INDEX
 	ENDM
 
-	MAC PLAY_STATE_DROWNING
+	MAC DROWNING_PLAY_STATE
 		; no arguments
 		; clobbers A
 		; alters BIRD_VPOS, PATTERN_INDEX, PLAY_STATE
@@ -423,7 +424,6 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		;		o point ADDRESS_SPRITE_0 to SPLASH_FRAME
 		;		o alter BIRD_HEAD_OFFSET and BIRD_HPOS
 		;		o SPLASH_COLOR = SWAMP_COLOR
-		;		o obstacle definition swap phase correction
 		LDA #BIRD_LOW
 		STA BIRD_VPOS
 		; --
@@ -433,7 +433,7 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		LDA #<SPLASH_FRAME
 		STA ADDRESS_SPRITE_0
 		; --
-		LDA #PLAY_STATE_DEATH_DROWN
+		LDA #PLAY_STATE_DROWN
 		STA PLAY_STATE
 		; --
 		DEC BIRD_HEAD_OFFSET
@@ -441,15 +441,9 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 		; --
 		LDA #SWAMP_COLOR
 		STA SPLASH_COLOR
-		; --
-		; perform a phantom swap before we get to the .prepare_display portion of
-		; game_vblank_death_drown subroutine -- if we don't do this we may start on
-		; the "wrong" frame and be "out of phase" when swapping obstacle definitions
-		MULTI_COUNT_TWO_CMP
-		BEQ .no_adjust
-		SWAP OB_0, OB_1
-		SWAP OB_0_BRANCH, OB_1_BRANCH
-.no_adjust
+
+		; obstacle flicker phase correction done in the overscan, otherwise
+		; there will be a frame where the wrong obstacle definitions are used
 
 	ENDM
 
@@ -614,6 +608,9 @@ game_restart SUBROUTINE game_restart
 	LDA #0
 	STA OB_1_SPEED 
 
+	; reset OB_0_BRANCH to zero - it might contain the residue of a call to SWAP
+	STA OB_0_BRANCH
+
 	; size/width of obstacles and player sprites changes frequently
 	; throughout the game.
 	; TODO: NUSIZ summary for entire game
@@ -680,7 +677,7 @@ game_vblank SUBROUTINE game_vblank
 	CPX #PLAY_STATE_COLLISION
 	BEQ .far_jmp_collision
 
-	CPX #PLAY_STATE_DEATH_DROWN
+	CPX #PLAY_STATE_DROWN
 	BEQ .far_jmp_drown
 
 	JMP game_vblank_ready
@@ -826,7 +823,8 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	POSITION_BIRD_SPRITE
 
 	; flicker obstacle 0 and 1 positions and display both using only obstacle 1
-	; hiding obstacle 0 in the activision border - we don't want the change of color to be visible
+	; o hiding obstacle 0 in the activision border
+	; o we do this because we don't want the setting of COLUP0 to SPLASH_COLOR to be visible
 	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
 	MULTI_COUNT_TWO_CMP
 	BEQ .show_obstacle_1
@@ -903,7 +901,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 	JMP .prepare_display
 
 .enter_drowning_state
-	PLAY_STATE_DROWNING
+	DROWNING_PLAY_STATE
 
 .prepare_display
 	POSITION_BIRD_SPRITE
@@ -1066,7 +1064,7 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	JMP .update_pattern_idx
 
 .begin_drowning
-	PLAY_STATE_DROWNING
+	DROWNING_PLAY_STATE
 	JMP .fly_end
 
 .limit_height
@@ -1082,7 +1080,6 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 
 ; ----------------------------------
 ; GAME - VBLANK - POSITION SPRITES / SCORING
-
 
 game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 	POSITION_BIRD_SPRITE
@@ -1116,6 +1113,7 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 
 ; ----------------------------------
 ; GAME - VBLANK - END (PREPARE DISPLAY KERNEL)
+
 game_vblank_end SUBROUTINE game_vblank_end
 	; setup display kernel (for foliage area)
 
@@ -1316,24 +1314,25 @@ game_play_area SUBROUTINE game_play_area
 	;		21 cycles used
 	;		1 cycles until end of HBLANK
 
-.precalc_missile_sprites
-	LDA (OB_0),Y							; 5
-	AND $00										; 2
-	STA .MISSILE_0_SET				; 3
-	LDA (OB_1),Y							; 5
-	AND $00										; 2
-	STA .MISSILE_1_SET				; 3
-
+	; precalculate missile state (on/off) before next .set_missile_sprites cycle
 	; precalculate branch placement in time for next .set_missile_sprites cycle
 .precalc_missile_size
-	LDA #(BRANCH_WIDTH | HEAD_SIZE)						; 3
-	CPY OB_1_BRANCH														; 3
-	BEQ .done_precalc_missile_size						; 2/3
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)					; 3
+	LDA #(BRANCH_WIDTH | HEAD_SIZE)					; 3
+	CPY OB_1_BRANCH													; 3
+	BEQ .done_precalc_missile_size					; 2/3
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)				; 3
 .done_precalc_missile_size
-	STA .MISSILE_1_NUSIZ											; 3
+	STA .MISSILE_1_NUSIZ										; 3
 
-	JMP .next_scanline												; 3
+.precalc_missile_sprites
+	LDA (OB_0),Y													; 5
+	AND $00																; 2
+	STA .MISSILE_0_SET										; 3
+	LDA (OB_1),Y													; 5
+	AND $00																; 2
+	STA .MISSILE_1_SET										; 3
+
+	JMP .next_scanline										; 3
 
 	; maximum 76 cycles between WSYNC
 	; longest path
@@ -1630,6 +1629,27 @@ game_overscan SUBROUTINE game_overscan
 	LDY #$0
 	STY BRANCH_SEED
 .next_branch
+
+	
+	; special case for when we've /just/ entered PLAY_STATE_DROWN
+	LDA PLAY_STATE
+	CMP #PLAY_STATE_DROWN
+	BNE .done_drowning_compensation
+	LDA PATTERN_INDEX
+	CMP #DEATH_DROWNING_LEN
+	BNE .done_drowning_compensation
+
+	; decrease PATTERN_INDEX straight away otherwise we'll reach this point
+	; again next frame, because PATTERN_INDEX is only updated every three frames
+	DEC PATTERN_INDEX
+
+	; phase correct the obstacle flicker if we're currently on the "odd" frame
+	MULTI_COUNT_TWO_CMP
+	BEQ .done_drowning_compensation
+	SWAP OB_0, OB_1
+	SWAP OB_0_BRANCH, OB_1_BRANCH
+.done_drowning_compensation
+
 
 	MULTI_COUNT_UPDATE
 
