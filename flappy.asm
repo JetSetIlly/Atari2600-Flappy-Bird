@@ -42,6 +42,15 @@ DEATH_DROWNING_LEN		= $0D ; should be the same BIRD_LOW + 1
 ; NUSIZ0 and NUSIZ1 values - first four bits set obstacle width
 ; - last four bits set the player sprite size and duplication number
 ; - the two nibbles will be OR'd to create the NUSIZ value
+;
+; size/width of obstacles and player sprites changes frequently throughout the game.
+;
+; summary of changes
+; ==================
+;		o during score routine
+;		o during overscan to the values here
+;		o NUSIZ1 missile width to simulate branch on trunk
+;
 OBSTACLE_WIDTH				= %00100000		; quad width
 BRANCH_WIDTH					= %00110000		; octuple width
 WINGS_SIZE						= %00000101   ; single instance, double width
@@ -198,11 +207,11 @@ DIGIT_ADDRESS_1				ds 2
 	
 DATA_SEGMENT
 
-; ready text
-READY_TEXT
-READY_OK		HEX 00 EA AA AA AC EA 00 00
-READY_QM		HEX 00 18 00 1E 42 7E 00 00 
-READY_TEXT_LINES = SPRITE_LINES		; needs to be equal to SPRITE_LINES for display kernel to work
+EMPTY						HEX 00 00 00 00 00 00 00 00
+
+; ready state text
+TEXT_OK					HEX 00 EA AA AA AC EA 00 00
+TEXT_QMARK			HEX 00 18 00 1E 42 7E 00 00 
 
 ; sprite data
 WINGS
@@ -315,7 +324,6 @@ BRANCHES_LEN	= 7
 ; see FLIGHT_PATTERN macros
 FLIGHT_PATTERNS
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
-READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 0, 0, 0, 1
 
 	; we'll be using fine positioning from vcs_extra.h so include sleep table definitions
 	DEF_POS_SLEEP_TABLE
@@ -569,6 +577,12 @@ game_state_init SUBROUTINE game_state_init
 	LDA FOREST_MID_2_INIT
 	STA FOREST_MID_2
 
+	; initialise NUSIZ values
+	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
+	STA NUSIZ0
+	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	STA NUSIZ1
+
 
 ; ----------------------------------
 ; GAME - RESTART
@@ -618,35 +632,29 @@ game_restart SUBROUTINE game_restart
 	; next play ; but it doesn't really matter
 	STA OB_0_BRANCH
 
-	; size/width of obstacles and player sprites changes frequently
-	; throughout the game.
-	; TODO: NUSIZ summary for entire game
-	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
-	STA NUSIZ0
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
-	STA NUSIZ1
-
 	; put game into ready state
 	;		o reset score
 	;		o initialise vertical and horizontal position
 	;		o use flat wings sprite at start
 	;		o reset BIRD_HEAD_OFFSET
 	;		o SPLASH_COLOR = BIRD_COLOUR
+	LDA #PLAY_STATE_READY
+	STA PLAY_STATE
+	; --
 	LDA #$0
 	STA SCORE
+	; --
 	LDA #BIRD_VPOS_INIT
 	STA BIRD_VPOS
 	LDA #BIRD_HPOS_INIT
 	STA BIRD_HPOS
+	; --
 	LDA #<WINGS_FLAT
 	STA ADDRESS_SPRITE_0
-	LDA #PLAY_STATE_READY
-	STA PLAY_STATE
-	LDA #<READY_FLIGHT_PATTERN
-	STA FLIGHT_PATTERN
-	RESET_FLIGHT_PATTERN FALSE
+	; --
 	LDA #$07
 	STA BIRD_HEAD_OFFSET
+	; --
 	LDA #BIRD_COLOR
 	STA SPLASH_COLOR
 
@@ -738,22 +746,33 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	; - same sequence as main play state
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
-	BEQ .display_ready_logo		; BPL implies BEQ so we need to explicitely catch it before BPL
+	BEQ .prepare_display		; BPL implies BEQ so we need to explicitely catch it before BPL
 	BPL .update_foliage
-	JMP .display_ready_logo
+	JMP .prepare_display
 
 .update_foliage
 	FOLIAGE_ANIMATION TRUE
 
-.display_ready_logo
+.prepare_display
+	MULTI_COUNT_TWO_CMP
+	BEQ .display_logo
+
+.display_empty
+	LDA #<EMPTY
+	STA ADDRESS_SPRITE_0
+	LDA #<EMPTY
+	STA ADDRESS_SPRITE_1
+	JMP game_vblank_end
+
+.display_logo
 	LDA #90
 	STA BIRD_VPOS
 	LDA #OKAY_COLOR
 	STA COLUP0
 	STA COLUP1
-	LDA #<READY_OK
+	LDA #<TEXT_OK
 	STA ADDRESS_SPRITE_0
-	LDA #<READY_QM
+	LDA #<TEXT_QMARK
 	STA ADDRESS_SPRITE_1
 	LDA #74
 	FINE_POS_SCREEN RESP0
@@ -827,6 +846,7 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 .prepare_display
 	POSITION_BIRD_SPRITE
 	JMP game_vblank_end
+
 
 ; ----------------------------------
 ; GAME - VBLANK - DEATH - DROWN
@@ -1595,13 +1615,13 @@ game_overscan SUBROUTINE game_overscan
 	LDA #0
 	STA GRP0
 	STA GRP1
+	LDA #BIRD_COLOR
+	STA COLUP0
+	STA COLUP1
 	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
 	STA NUSIZ0
 	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
 	STA NUSIZ1
-	LDA #BIRD_COLOR
-	STA COLUP0
-	STA COLUP1
 
 	; limit OBSTACLE_SEED to maximum value
 	LDY OBSTACLE_SEED
