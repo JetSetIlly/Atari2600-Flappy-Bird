@@ -88,7 +88,7 @@ VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
 
 ; point at which to change the sprite color - to enable effective swamp colouring
 ; the value should be odd because it is checked for on the odd scanlines
-SPLASH_LINE = $07
+SPLASH_LINE = $09
 
 ; screen boundaries for bird sprite
 BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
@@ -229,8 +229,8 @@ NUM_HEADS				= 4
 
 SPRITE_LINES		=	7
 
-_SPLASH_FRAME_BUFFER HEX 00 
-SPLASH_FRAME HEX 00 18 24 24 42 00 00 00
+_SPLASH HEX 18 18 
+SPLASH	HEX 00 00 24 42 24 00 18 00
 
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
@@ -431,7 +431,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 		; put game into drowning state
 		;		o make sure bird is at the lowest position
 		;		o use pattern index to measure length of drowning animation
-		;		o point ADDRESS_SPRITE_0 to SPLASH_FRAME
+		;		o point ADDRESS_SPRITE_0 to SPLASH
 		;		o alter BIRD_HEAD_OFFSET and BIRD_HPOS
 		;		o SPLASH_COLOR = SWAMP_COLOR
 		LDA #BIRD_LOW
@@ -440,13 +440,15 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 		LDA #DEATH_DROWNING_LEN
 		STA PATTERN_INDEX
 		; --
-		LDA #<SPLASH_FRAME
+		LDA #<SPLASH
 		STA ADDRESS_SPRITE_0
 		; --
 		LDA #PLAY_STATE_DROWN
 		STA PLAY_STATE
 		; --
 		DEC BIRD_HEAD_OFFSET
+		DEC BIRD_HEAD_OFFSET
+		INC BIRD_HPOS
 		INC BIRD_HPOS
 		; --
 		LDA #SWAMP_COLOR
