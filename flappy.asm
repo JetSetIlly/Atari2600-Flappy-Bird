@@ -706,61 +706,44 @@ game_vblank SUBROUTINE game_vblank
 ; GAME - VBLANK - READY STATE
 
 game_vblank_ready SUBROUTINE game_vblank_ready
-	; skip user input check unless bird is in position
-	LDA BIRD_HPOS
-	CMP #BIRD_HPOS_PLAY_POS
-	BNE .ready_state_triage
-
 	; check for user input
 	DISCREET_TRIGGER_PLAYER0
 	BMI .ready_state_triage
-.end_ready_state
+
 	; put into approach state
 	;		o set correct flight pattern
-	;		o display_bird_sprite will set up the sprite data
+	;		o change player sprites to point to wings/head data
+	;		o put bird sprite at correct vertical and horizontal positions
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
 
-	; TODO: use flight pattern depending on switch
-	LDA #<EASY_FLIGHT_PATTERN
-	STA FLIGHT_PATTERN
-	RESET_FLIGHT_PATTERN FALSE
+  ; TODO: use flight pattern depending on switch
+  LDA #<EASY_FLIGHT_PATTERN
+  STA FLIGHT_PATTERN
+  RESET_FLIGHT_PATTERN FALSE
 
-	JMP .display_bird_sprite
+	LDA #<WINGS_FLAT
+	STA ADDRESS_SPRITE_0
+	LDY SELECTED_HEAD
+	LDA HEADS_TABLE,Y
+	STA ADDRESS_SPRITE_1
+
+	LDA #BIRD_VPOS_INIT
+	STA BIRD_VPOS
+
+	POSITION_BIRD_SPRITE	
+
+	JMP game_vblank_end
 
 	; update every three frames
 	; - same sequence as main play state
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
-	BEQ .update_bird
 	BPL .update_foliage
-	JMP .prepare_display
+	JMP .display_ready_logo
 
 .update_foliage
 	FOLIAGE_ANIMATION TRUE
-	JMP .prepare_display
-
-.update_bird
-	; update PATTERN_INDEX (cycling if necessary)
-	LDY PATTERN_INDEX
-	UPDATE_FLIGHT_PATTERN TRUE
-
-	; move bird towards play position if it's not there already
-	LDA BIRD_HPOS
-	CMP #BIRD_HPOS_PLAY_POS
-	BEQ .hpos_done
-	CLC
-	ADC #1			; not bothering to use FINE_POS_MOVE_RIGHT
-	STA BIRD_HPOS
-.hpos_done
-	JMP .prepare_display
-
-.prepare_display
-	MULTI_COUNT_TWO_CMP
-	BEQ .far_jmp_sprite
-	JMP .display_ready_logo
-.far_jmp_sprite
-	JMP .display_bird_sprite
 
 .display_ready_logo
 	LDA #90
@@ -777,25 +760,6 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	LDA #90
 	FINE_POS_SCREEN RESP1
 	JMP game_vblank_end
-
-.display_bird_sprite
-	; BIRD_VPOS gets clobbered every time .display_ready_logo above is run
-	; so we need to start again from BIRD_VPOS_INIT
-	; note that we call UPDATE_FLIGHT_PATTERN in .update_bird above
-	LDA #BIRD_VPOS_INIT
-	STA BIRD_VPOS
-	APPLY_FLIGHT_PATTERN
-	STA BIRD_VPOS
-
-	LDA #<WINGS_FLAT
-	STA ADDRESS_SPRITE_0
-
-	LDY SELECTED_HEAD
-	LDA HEADS_TABLE,Y
-	STA ADDRESS_SPRITE_1
-	POSITION_BIRD_SPRITE	
-	JMP game_vblank_end
-	
 
 
 
@@ -919,20 +883,34 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 ; GAME - VBLANK - APPROACH
 
 game_vblank_approach SUBROUTINE game_vblank_approach
-	; if obstacle 0 has reached middle of screen then
-	; put into main play state
-	;		o start obstacle 1 moving
+	MULTI_COUNT_THREE_CMP 1
+	BNE .test_approach_completion
+	
+	; move bird towards play position if it's not there already
 	LDA BIRD_HPOS
 	CMP #BIRD_HPOS_PLAY_POS
-	BNE .done_check_end_approach
+	BEQ .hpos_done
+	CLC
+	ADC #1
+	STA BIRD_HPOS
+.hpos_done
+
+.test_approach_completion
+	; end approach state if obstacle 0 has reached middle of the screen
 	LDA OB_0_HPOS
 	CMP #78
-	BNE .done_check_end_approach
-	LDA #1
-	STA OB_1_SPEED
+	BNE .done_completion_test
+
+	; note there is an assumption that the bird has reached BIRD_HPOS_PLAY_POS
+	; before obstacle 0 reaches the middle of the screen
+
+	; put into main play state
+	;		o start obstacle 1 moving
 	LDA #PLAY_STATE_PLAY
 	STA PLAY_STATE
-.done_check_end_approach
+	LDA #1
+	STA OB_1_SPEED
+.done_completion_test
 
 	; intentionally fall through to VBLANK - PLAY
 
