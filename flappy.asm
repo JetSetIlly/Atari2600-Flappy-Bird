@@ -7,7 +7,7 @@
 	include dasm_extra.h
 
 ; ----------------------------------
-; DATA - COLOURS
+; * DATA - COLOURS
 
 ; colours
 BIRD_COLOR							= $06
@@ -28,7 +28,7 @@ HISCORE_COLOR						= $F6
 OKAY_COLOR							= $2E
 
 ; ----------------------------------
-; DATA - CONSTANTS
+; * DATA - CONSTANTS
 
 ; values for CTRLPF
 CTRLPF_FOLIAGE  = %00100100
@@ -96,7 +96,7 @@ BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
 
 
 ; ----------------------------------
-; DATA - RAM
+; * DATA - RAM
 	SEG.U RAM 
 	ORG $80			; start of 2600 RAM
 
@@ -192,7 +192,7 @@ DIGIT_ADDRESS_1				ds 2
 
 
 ; ----------------------------------
-; DATA - DATA / OBSTACLE DATA, ETC.
+; * DATA - DATA / OBSTACLE DATA, ETC.
 	SEG
 	ORG $F000		; start of cart ROM
 	
@@ -322,39 +322,7 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 
 
 ; ----------------------------------
-; MACROS
-	MAC POSITION_BIRD_SPRITE
-		JSR SR_POSITION_BIRD_SPRITE
-	ENDM
-
-	MAC NEW_OBSTACLE
-		; {obstacle number -> 0 or 1}
-		; clobbers A and X
-		; alters OB_0 or OB_1
-
-		IF {1} != 0 && {1} != 1
-			DASM_MACRO_ERROR "'NEW_OBSTACLE': {1} must be 0 or 1"
-		ENDIF
-
-		LDX OBSTACLE_SEED
-		LDA #<SET_OBSTACLE_TABLE
-		CLC
-		ADC OBSTACLES,X
-
-		IF {1} == 0
-			STA OB_0
-			LDA #$00
-			STA OB_0_BRANCH
-		ENDIF
-
-		IF {1} == 1
-			STA OB_1
-			LDX BRANCH_SEED
-			LDA BRANCHES,X
-			STA OB_1_BRANCH
-		ENDIF
-	ENDM
-
+; * MACROS - FLIGHT PATTERN
 
 	MAC APPLY_FLIGHT_PATTERN
 		; no arguments
@@ -412,6 +380,40 @@ READY_FLIGHT_PATTERN .byte 18, 1, 2, 2, 0, 0, 0, 0, 0, -1, -2, -2, -0, 0, 0, 0, 
 .store_index
 		STA PATTERN_INDEX
 	ENDM
+
+; ----------------------------------
+; * MACROS - OTHER
+
+	MAC POSITION_BIRD_SPRITE
+		JSR SR_POSITION_BIRD_SPRITE
+	ENDM
+
+	MAC NEW_OBSTACLE
+		; {obstacle number -> 0 or 1}
+		; clobbers A and X
+		; alters OB_0 or OB_1
+
+		IF {1} != 0 && {1} != 1
+			DASM_MACRO_ERROR "'NEW_OBSTACLE': {1} must be 0 or 1"
+		ENDIF
+
+		LDX OBSTACLE_SEED
+		LDA #<SET_OBSTACLE_TABLE
+		CLC
+		ADC OBSTACLES,X
+
+		IF {1} == 0
+			STA OB_0
+		ENDIF
+
+		IF {1} == 1
+			STA OB_1
+			LDX BRANCH_SEED
+			LDA BRANCHES,X
+			STA OB_1_BRANCH
+		ENDIF
+	ENDM
+
 
 	MAC DROWNING_PLAY_STATE
 		; no arguments
@@ -608,7 +610,12 @@ game_restart SUBROUTINE game_restart
 	LDA #0
 	STA OB_1_SPEED 
 
-	; reset OB_0_BRANCH to zero - it might contain the residue of a call to SWAP
+	; reset OB_0_BRANCH to zero - it should always be zero except when it is being
+	; used to swap the contents of OB_1_BRANCH during PLAY_STATE_DROWN.
+	; we're forcing the resetting of it's value here becaus PLAY_STATE_DROWN may have
+	; occurred out of phase and left the real value of OB_1_BRANCH in OB_0_BRANCH.
+	; the consequence of this is that OB_1_BRANCH may lose its real value for the
+	; next play ; but it doesn't really matter
 	STA OB_0_BRANCH
 
 	; size/width of obstacles and player sprites changes frequently
@@ -682,11 +689,11 @@ game_vblank SUBROUTINE game_vblank
 
 	JMP game_vblank_ready
 
-.far_jmp_drown
-	JMP game_vblank_death_drown
-
 .far_jmp_collision
 	JMP game_vblank_death_collision
+
+.far_jmp_drown
+	JMP game_vblank_death_drown
 
 .far_jmp_approach
 	JMP game_vblank_approach
@@ -791,56 +798,6 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	
 
 
-; ----------------------------------
-; GAME - VBLANK - DEATH - DROWN
-
-game_vblank_death_drown SUBROUTINE game_vblank_death_drown
-	; slow down death animation
-	MULTI_COUNT_THREE_CMP 0
-	BEQ .update_bird
-	BPL .update_foliage
-	JMP .prepare_display
-
-.update_foliage
-	FOLIAGE_ANIMATION FALSE
-	JMP .prepare_display
-
-.update_bird
-	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
-	DEC PATTERN_INDEX
-	BEQ .drowning_end
-
-	; decrease bird sprite position
-	DEC BIRD_VPOS
-	DEC ADDRESS_SPRITE_0
-
-	JMP .prepare_display
-
-.drowning_end
-	JMP game_restart
-
-.prepare_display
-	POSITION_BIRD_SPRITE
-
-	; flicker obstacle 0 and 1 positions and display both using only obstacle 1
-	; o hiding obstacle 0 in the activision border
-	; o we do this because we don't want the setting of COLUP0 to SPLASH_COLOR to be visible
-	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
-	MULTI_COUNT_TWO_CMP
-	BEQ .show_obstacle_1
-	LDA OB_0_HPOS
-	JMP .flipped_obstacles
-.show_obstacle_1
-	LDA OB_1_HPOS
-.flipped_obstacles
-	FINE_POS_SCREEN RESM1
-
-	; swap obstacle defintions
-	SWAP OB_0, OB_1
-	SWAP OB_0_BRANCH, OB_1_BRANCH
-
-	JMP game_vblank_end
-
 
 ; ----------------------------------
 ; GAME - VBLANK - DEATH - COLLISION
@@ -905,6 +862,56 @@ game_vblank_death_collision SUBROUTINE game_vblank_death_collision
 
 .prepare_display
 	POSITION_BIRD_SPRITE
+	JMP game_vblank_end
+
+; ----------------------------------
+; GAME - VBLANK - DEATH - DROWN
+
+game_vblank_death_drown SUBROUTINE game_vblank_death_drown
+	; slow down death animation
+	MULTI_COUNT_THREE_CMP 0
+	BEQ .update_bird
+	BPL .update_foliage
+	JMP .prepare_display
+
+.update_foliage
+	FOLIAGE_ANIMATION FALSE
+	JMP .prepare_display
+
+.update_bird
+	; end drowning after PATTERN_INDEX (initialised to DEATH_DROWNING_LEN) 
+	DEC PATTERN_INDEX
+	BEQ .drowning_end
+
+	; decrease bird sprite position
+	DEC BIRD_VPOS
+	DEC ADDRESS_SPRITE_0
+
+	JMP .prepare_display
+
+.drowning_end
+	JMP game_restart
+
+.prepare_display
+	POSITION_BIRD_SPRITE
+
+	; flicker obstacle 0 and 1 positions and display both using only obstacle 1
+	; o hiding obstacle 0 in the activision border
+	; o we do this because we don't want the setting of COLUP0 to SPLASH_COLOR to be visible
+	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
+	MULTI_COUNT_TWO_CMP
+	BEQ .show_obstacle_1
+	LDA OB_0_HPOS
+	JMP .flipped_obstacles
+.show_obstacle_1
+	LDA OB_1_HPOS
+.flipped_obstacles
+	FINE_POS_SCREEN RESM1
+
+	; swap obstacle defintions
+	SWAP OB_0, OB_1
+	SWAP OB_0_BRANCH, OB_1_BRANCH
+
 	JMP game_vblank_end
 
 
@@ -1659,7 +1666,7 @@ game_overscan SUBROUTINE game_overscan
 
 
 ; ----------------------------------
-; SUBROUTINES
+; * SUBROUTINES
 
 SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
 		; no arguments
@@ -1673,7 +1680,7 @@ SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
 		RTS
 
 ; ----------------------------------
-; MACHINE INITIALISATION
+; * MACHINE INITIALISATION
 
 initialisation SUBROUTINE initialisation
 
