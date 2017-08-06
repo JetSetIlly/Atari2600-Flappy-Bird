@@ -1105,6 +1105,8 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 
 .scoring_check
 	LDA BIRD_HPOS
+	CMP #BIRD_HPOS_PLAY_POS
+	BNE .end_scoring
 	CMP OB_0_HPOS
 	BEQ .score_obstacle
 	CMP OB_1_HPOS
@@ -1120,6 +1122,8 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 	STA SCORE
 	CLD
 	JMP game_vblank_end
+
+.end_scoring
 
 
 ; ----------------------------------
