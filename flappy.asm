@@ -713,7 +713,8 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	; put into approach state
 	;		o set correct flight pattern
 	;		o change player sprites to point to wings/head data
-	;		o put bird sprite at correct vertical and horizontal positions
+	;		o put bird sprite at correct vertical positions
+	;		o jump to vblank approach
 	LDA #PLAY_STATE_APPROACH
 	STA PLAY_STATE
 
@@ -731,14 +732,13 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	LDA #BIRD_VPOS_INIT
 	STA BIRD_VPOS
 
-	POSITION_BIRD_SPRITE	
-
-	JMP game_vblank_end
+	JMP game_vblank_approach
 
 	; update every three frames
 	; - same sequence as main play state
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
+	BEQ .display_ready_logo		; BPL implies BEQ so we need to explicitely catch it before BPL
 	BPL .update_foliage
 	JMP .display_ready_logo
 
@@ -893,6 +893,10 @@ game_vblank_approach SUBROUTINE game_vblank_approach
 	CLC
 	ADC #1
 	STA BIRD_HPOS
+
+	; note that because game_vblank_approach falls through game_vblank_main_triage
+	; we'll also be performing the usual bird sprite update in addition to the
+	; above horizontal movement
 .hpos_done
 
 .test_approach_completion
@@ -912,7 +916,7 @@ game_vblank_approach SUBROUTINE game_vblank_approach
 	STA OB_1_SPEED
 .done_completion_test
 
-	; intentionally fall through to VBLANK - PLAY
+	; intentionally fall through to game_vblank_main_triage
 
 ; ----------------------------------
 ; GAME - VBLANK - MAIN (TRIAGE)
