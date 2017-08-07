@@ -7,7 +7,7 @@ NULL = 0
 TRUE = 1
 FALSE = 0
 
-SELECT_SWITCH = #%00000010
+SELECT_SWITCH = %00000010
 
 ; -----------------------------------
 ; DISPLAY CONSTANTS
@@ -367,11 +367,11 @@ POS_SCREEN_CYCLES = 11
 		; clobbers X and A
 		; result = BNE not set, BEQ is set
 		LDA SWCHB
-		AND {1}
+		AND #{1}
 		BNE .done
 		LDA __STATE_SWCHB
 		EOR #$FF
-		AND {1}
+		AND #{1}
 .done
 	ENDM
 
