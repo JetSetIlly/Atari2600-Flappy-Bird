@@ -145,14 +145,14 @@ POS_SCREEN_CYCLES = 11
 ; FINE POSITIONING
 
 	MAC FINE_POS_SCREEN_LEFT
-	; {sprite} {position store} {sprite width} {margin)
+	; {sprite} {position store} {sprite width} {offset)
 	; position store:
 	;		- memory address in which to store position
 	;		- do not store if "position store" == NULL or 0 
-	; margin:
+	; offset:
 	;		- positive -> pixels
 	;		- negative -> multiples of sprite width
-	; note that {sprite width} doesn't mean very much except when {margin} is negative
+	; note that {sprite width} doesn't mean very much except when {offset} is negative
 		IF !({3} == 1 || {3} == 2 || {3} == 4 || {3} == 8)
 			ECHO "MACRO ERROR: 'FINE_POS_SCREEN_LEFT': value of {3} must be 1, 2, 4 or 8"
 			ERR
@@ -165,15 +165,15 @@ POS_SCREEN_CYCLES = 11
 		IF {2} != NULL
 			STA {2}
 		ENDIF
-		FINE_POS_SCREEN {1}
+		FINE_POS_SCREEN_A {1}
 	ENDM
 
 	MAC FINE_POS_SCREEN_RIGHT
-	; {sprite} {position store} {sprite width} {margin}
+	; {sprite} {position store} {sprite width} {offset}
 	; position store:
 	;		- memory address in which to store position
 	;		- do not store if "position store" == "NONE" or 0 
-	; margin:
+	; offset:
 	;		- positive -> pixels
 	;		- negative -> multiples of sprite width
 		IF !({3} == 1 || {3} == 2 || {3} == 4 || {3} == 8)
@@ -188,13 +188,19 @@ POS_SCREEN_CYCLES = 11
 		IF {2} != 0
 			STA {2}
 		ENDIF
-		FINE_POS_SCREEN {1}
+		FINE_POS_SCREEN_A {1}
 	ENDM
 
 	MAC FINE_POS_SCREEN
+	; {sprite} {position}
+
+		LDA {2}
+		FINE_POS_SCREEN_A {1}
+	ENDM
+
+	MAC FINE_POS_SCREEN_A
 	; {sprite}
 	; accumulator to be preset with position value in pixels
-	; define FINE_POS_NO_LIMIT_CHECK to remove screen/jump-table boundary check
 
 		; check for screen limits
 	IFCONST FINE_POS_LIMIT_CHECK

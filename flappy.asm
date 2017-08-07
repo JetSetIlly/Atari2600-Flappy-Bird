@@ -54,6 +54,7 @@ DEATH_DROWNING_LEN		= $0D ; should be the same BIRD_LOW + 1
 ;
 OBSTACLE_WIDTH				= %00100000		; quad width
 BRANCH_WIDTH					= %00110000		; octuple width
+BALL_WIDTH						= 001100000		; octuple width
 WING_WIDTH						= %00000101   ; single instance, double width
 HEAD_WIDTH						= %00000000   ; single instance, single width
 SCORE_DIGITS_SIZE			= %00000101   ; single instance, double width
@@ -770,10 +771,8 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	STA ADDRESS_SPRITE_0
 	LDA #<TEXT_QMARK
 	STA ADDRESS_SPRITE_1
-	LDA #74
-	FINE_POS_SCREEN RESP0
-	LDA #90
-	FINE_POS_SCREEN RESP1
+	FINE_POS_SCREEN RESP0, #74
+	FINE_POS_SCREEN RESP1, #90
 	JMP game_vblank_end
 
 
@@ -881,13 +880,12 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
 	MULTI_COUNT_TWO_CMP
 	BEQ .show_obstacle_1
-	LDA OB_0_HPOS
+	FINE_POS_SCREEN RESM1, OB_0_HPOS
 	JMP .flipped_obstacles
 .show_obstacle_1
-	LDA OB_1_HPOS
+	FINE_POS_SCREEN RESM1, OB_1_HPOS
 .flipped_obstacles
 
-	FINE_POS_SCREEN RESM1
 	SWAP OB_0, OB_1
 	SWAP OB_0_BRANCH, OB_1_BRANCH
 
@@ -1091,10 +1089,8 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 	; progress and then position osbtacles
 	FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, TRUE
 	FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, TRUE
-	LDA OB_0_HPOS
-	FINE_POS_SCREEN RESM0
-	LDA OB_1_HPOS
-	FINE_POS_SCREEN RESM1
+	FINE_POS_SCREEN RESM0, OB_0_HPOS
+	FINE_POS_SCREEN RESM1, OB_1_HPOS
 
 .scoring_check
 	LDA PLAY_STATE
@@ -1678,12 +1674,11 @@ game_overscan SUBROUTINE game_overscan
 SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
 		; no arguments
 		; clobbers A and X
-		LDA BIRD_HPOS
-		FINE_POS_SCREEN RESP0
+		FINE_POS_SCREEN RESP0, BIRD_HPOS
 		LDA BIRD_HPOS
 		CLC
 		ADC BIRD_HEAD_OFFSET
-		FINE_POS_SCREEN RESP1
+		FINE_POS_SCREEN_A RESP1
 		RTS
 
 ; ----------------------------------
