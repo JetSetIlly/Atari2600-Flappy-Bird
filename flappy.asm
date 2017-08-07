@@ -47,18 +47,18 @@ DEATH_DROWNING_LEN		= $0D ; should be the same BIRD_LOW + 1
 ;
 ; summary of changes
 ; ==================
+;		o during game initialisation
 ;		o during score routine
-;		o during overscan to the values here
-;		o NUSIZ1 missile width to simulate branch on trunk
+;		o during overscan, to the values here
+;		o during game play area, to simulate a solitary branch (NUSIZ1) only
 ;
 OBSTACLE_WIDTH				= %00100000		; quad width
 BRANCH_WIDTH					= %00110000		; octuple width
-WINGS_SIZE						= %00000101   ; single instance, double width
-HEAD_SIZE							= %00000000   ; single instance, single width
-BORDER_SIZE						= %00000000		; single instacle, single_width
+WING_WIDTH						= %00000101   ; single instance, double width
+HEAD_WIDTH						= %00000000   ; single instance, single width
 SCORE_DIGITS_SIZE			= %00000101   ; single instance, double width
 
-; start position at start of game 
+; bird sprite "coords"
 BIRD_VPOS_INIT					=	BIRD_HIGH / 4 * 3
 BIRD_HPOS_INIT					=	$00
 BIRD_HPOS_PLAY_POS			=	$0C
@@ -115,13 +115,13 @@ BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
 __SLEEP_TABLE_JMP				ds 2
 __MULTI_COUNT_STATE			ds 1
 __STATE_INPT4						ds 1
+__STATE_SWCHB						ds 1
 
 
 ; LOCAL SCOPE
 ; - can be resused between subroutines
 ; - don't access these locations accept through aliases defined
 ; in the subroutine that uses them
-
 _localA								ds 1
 _localB								ds 1
 _localC								ds 1
@@ -134,7 +134,6 @@ _localG								ds 1
 ; GLOBAL SCOPE 
 ; - data that persists for a long time, say, frame to frame
 
-STATE_SWCHB							ds 1	; state of switches from frame to frame
 PLAY_STATE							ds 1	; state of play - zero is normal, negative is death
 SELECTED_HEAD						ds 1	;	index into HEADS_TABLE
 
@@ -151,25 +150,22 @@ BIRD_HEAD_OFFSET				ds 1	; number of pixels the head is offset from BIRD_HPOS
 
 ; PATTERN_INDEX's meaning changes depending on PLAY_STATE
 ;
-; if PLAY_STATE == PLAY_STATE_PLAY || PLAY_STATE_COLLISION
-;	then
-;		PATTERN_INDEX indexes READY_PATTERN
-;
-; if PLAY_STATE == PLAY_STATE_PLAY || PLAY_STATE_COLLISION
+; if PLAY_STATE == PLAY_STATE_PLAY || PLAY_STATE_APPROACH || PLAY_STATE_COLLISION
 ;	then
 ;		PATTERN_INDEX indexes FLIGHT_PATTERN
 ;
 ; if PLAY_STATE == PLAY_STATE_DROWN
 ;	then
 ;		PATTERN_INDEX counts number of frames to game reset
+;
 PATTERN_INDEX				ds 1
 
-; seed values for next foliage, obstacle and branch
+; seed values for /next/ foliage, obstacle and branch
 FOLIAGE_SEED				ds 1
 OBSTACLE_SEED				ds 1
 BRANCH_SEED					ds 1
 
-; obstacles
+; obstacle defintions
 OB_0								ds 2
 OB_1								ds 2
 OB_0_BRANCH					ds 1
@@ -179,22 +175,19 @@ OB_1_HPOS						ds 1
 OB_0_SPEED					ds 1
 OB_1_SPEED					ds 1
 
-; background trees
+; current state of background trees (playfield data)
 FOREST_MID_0					ds 1
 FOREST_MID_1					ds 1
 FOREST_MID_2					ds 1
 
 ; colour of player/missile 0 below the splash line
-; o changes depending on game state
+; o BIRD_COLOR in most instances
+; o SWAMP_COLOR during PLAY_STATE_DROWN
 SPLASH_COLOR					ds 1
 
 ; player score
 SCORE									ds 1
 HISCORE								ds 1
-
-; base address of current number being drawn
-DIGIT_ADDRESS_0				ds 2
-DIGIT_ADDRESS_1				ds 2
 
 	; DASM directive - echo number of bytes left in RAM
 	DASM_MESSAGE "",($100 - *) , "bytes of RAM left"
@@ -389,6 +382,9 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 		STA PATTERN_INDEX
 	ENDM
 
+
+
+
 ; ----------------------------------
 ; * MACROS - OTHER
 
@@ -521,7 +517,7 @@ title_screen SUBROUTINE title_screen
 
 .vblank
 	VBLANK_KERNEL_SETUP
-	DISCREET_TRIGGER_PLAYER0
+	NEW_TRIGGER_CHECK 0
 	BPL .end_title_screen
 	LDX #DISPLAY_SCANLINES
 	VBLANK_KERNEL_END
@@ -548,8 +544,6 @@ game_state_init SUBROUTINE game_state_init
 	LDA #>DATA_SEGMENT
 	STA ADDRESS_SPRITE_0+1
 	STA ADDRESS_SPRITE_1+1
-	STA DIGIT_ADDRESS_0+1
-	STA DIGIT_ADDRESS_1+1
 	LDA #>FLIGHT_PATTERNS
 	STA FLIGHT_PATTERN+1
 
@@ -580,9 +574,9 @@ game_state_init SUBROUTINE game_state_init
 	STA FOREST_MID_2
 
 	; initialise NUSIZ values
-	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
+	LDA #(OBSTACLE_WIDTH | WING_WIDTH)
 	STA NUSIZ0
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	LDA #(OBSTACLE_WIDTH | HEAD_WIDTH)
 	STA NUSIZ1
 
 
@@ -595,7 +589,7 @@ game_restart SUBROUTINE game_restart
 	; clear any active collisions
 	STA CXCLR
 
-	DISCREET_TRIGGER_PLAYER0
+	NEW_TRIGGER_CHECK 0
 
 	MULTI_COUNT_SETUP
 
@@ -717,7 +711,7 @@ game_vblank SUBROUTINE game_vblank
 
 game_vblank_ready SUBROUTINE game_vblank_ready
 	; check for user input
-	DISCREET_TRIGGER_PLAYER0
+	NEW_TRIGGER_CHECK 0
 	BMI .ready_state_triage
 
 	; put into approach state
@@ -748,7 +742,7 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	; - same sequence as main play state
 .ready_state_triage
 	MULTI_COUNT_THREE_CMP 1
-	BEQ .prepare_display		; BPL implies BEQ so we need to explicitely catch it before BPL
+	BEQ .prepare_display
 	BPL .update_foliage
 	JMP .prepare_display
 
@@ -892,9 +886,8 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 .show_obstacle_1
 	LDA OB_1_HPOS
 .flipped_obstacles
-	FINE_POS_SCREEN RESM1
 
-	; swap obstacle defintions
+	FINE_POS_SCREEN RESM1
 	SWAP OB_0, OB_1
 	SWAP OB_0_BRANCH, OB_1_BRANCH
 
@@ -946,8 +939,8 @@ game_vblank_approach SUBROUTINE game_vblank_approach
 game_vblank_main_triage SUBROUTINE game_vblank_main_triage
 	MULTI_COUNT_THREE_CMP 1
 	BEQ .far_jmp_sprite
-	BMI game_vblank_collisions
 	BPL game_vblank_foliage
+	BMI game_vblank_collisions
 
 .far_jmp_sprite
 	JMP game_vblank_sprite
@@ -1013,7 +1006,7 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 ; GAME - VBLANK - MAIN - UPDATE BIRD SPRITE
 
 game_vblank_sprite SUBROUTINE game_vblank_sprite
-	DISCREET_TRIGGER_PLAYER0
+	NEW_TRIGGER_CHECK 0
 	BMI .process_flight_pattern
 
 	; trigger is being pressed
@@ -1104,9 +1097,9 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 	FINE_POS_SCREEN RESM1
 
 .scoring_check
-	LDA BIRD_HPOS
-	CMP #BIRD_HPOS_PLAY_POS
+	LDA PLAY_STATE
 	BNE .end_scoring
+	LDA BIRD_HPOS
 	CMP OB_0_HPOS
 	BEQ .score_obstacle
 	CMP OB_1_HPOS
@@ -1305,7 +1298,7 @@ game_play_area SUBROUTINE game_play_area
 	LDA #$02
 	STA .MISSILE_0_SET
 	STA .MISSILE_1_SET
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	LDA #(OBSTACLE_WIDTH | HEAD_WIDTH)
 	STA .MISSILE_1_NUSIZ
 
 	; loop alternates between .set_player_sprites and .set_missile_sprites starting with .set_player_sprites
@@ -1332,10 +1325,10 @@ game_play_area SUBROUTINE game_play_area
 	; precalculate missile state (on/off) before next .set_missile_sprites cycle
 	; precalculate branch placement in time for next .set_missile_sprites cycle
 .precalc_missile_size
-	LDA #(BRANCH_WIDTH | HEAD_SIZE)					; 3
+	LDA #(BRANCH_WIDTH | HEAD_WIDTH)					; 3
 	CPY OB_1_BRANCH													; 3
 	BEQ .done_precalc_missile_size					; 2/3
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)				; 3
+	LDA #(OBSTACLE_WIDTH | HEAD_WIDTH)				; 3
 .done_precalc_missile_size
 	STA .MISSILE_1_NUSIZ										; 3
 
@@ -1504,6 +1497,14 @@ swamp SUBROUTINE swamp
 ; ----------------------------------
 ; GAME - DISPLAY KERNEL - DISPLAY SCORE
 display_score SUBROUTINE display_score
+.DIGIT_TENS = _localA
+.DIGIT_UNITS = _localC
+
+	; prepare data segment for digit addressing
+	LDA #>DATA_SEGMENT
+	STA .DIGIT_TENS+1
+	STA .DIGIT_UNITS+1
+
 	STA WSYNC
 	LDA #0
 	STA PF0
@@ -1533,7 +1534,7 @@ display_score SUBROUTINE display_score
 	AND #$0F
 	TAY
 	LDA DIGIT_TABLE,Y
-	STA DIGIT_ADDRESS_1
+	STA .DIGIT_UNITS
 
 	; get address of tens digit
 	LDA SCORE
@@ -1552,7 +1553,7 @@ display_score SUBROUTINE display_score
 	AND #$0F
 	TAY
 	LDA DIGIT_TABLE,Y
-	STA DIGIT_ADDRESS_1
+	STA .DIGIT_UNITS
 
 	; get address of tens digit
 	LDA HISCORE
@@ -1565,7 +1566,7 @@ display_score SUBROUTINE display_score
 	AND #$0F
 	TAY
 	LDA DIGIT_TABLE,Y
-	STA DIGIT_ADDRESS_0
+	STA .DIGIT_TENS
 
 	LDY #DIGIT_LINES
 
@@ -1575,9 +1576,9 @@ display_score SUBROUTINE display_score
 
 .scoring_loop
 	STA WSYNC
-	LDA (DIGIT_ADDRESS_1),Y
+	LDA (.DIGIT_UNITS),Y
 	STA GRP1										; 3
-	LDA (DIGIT_ADDRESS_0),Y
+	LDA (.DIGIT_TENS),Y
 	STA GRP0										; 3
 
 .next_scanline
@@ -1592,15 +1593,8 @@ display_score SUBROUTINE display_score
 game_overscan SUBROUTINE game_overscan
 	OVERSCAN_KERNEL_SETUP
 
-	; read select switch
-	LDA SWCHB
-	AND #%00000010
-	BNE .heads_swapped
-.cycle_heads
-	; do nothing if select button is being held from last frame
-	LDA STATE_SWCHB
-	AND #%00000010
-	BEQ .heads_swapped
+	NEW_SWITCH_CHECK SELECT_SWITCH
+	BNE .done_head_check
 
 	LDY SELECTED_HEAD
 	INY
@@ -1611,9 +1605,10 @@ game_overscan SUBROUTINE game_overscan
 	STY SELECTED_HEAD
 	LDA HEADS_TABLE,Y
 	STA ADDRESS_SPRITE_1
-.heads_swapped
-	LDA SWCHB
-	STA STATE_SWCHB
+
+.done_head_check
+	STORE_SWITCH_STATE
+
 
 	; reset player sprites, color and NUSIZ after scoring subroutine
 	; o color may change again in the ready state for the "OK?" text
@@ -1624,9 +1619,9 @@ game_overscan SUBROUTINE game_overscan
 	LDA #BIRD_COLOR
 	STA COLUP0
 	STA COLUP1
-	LDA #(OBSTACLE_WIDTH | WINGS_SIZE)
+	LDA #(OBSTACLE_WIDTH | WING_WIDTH)
 	STA NUSIZ0
-	LDA #(OBSTACLE_WIDTH | HEAD_SIZE)
+	LDA #(OBSTACLE_WIDTH | HEAD_WIDTH)
 	STA NUSIZ1
 
 	; limit OBSTACLE_SEED to maximum value

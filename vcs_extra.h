@@ -7,6 +7,8 @@ NULL = 0
 TRUE = 1
 FALSE = 0
 
+SELECT_SWITCH = #%00000010
+
 ; -----------------------------------
 ; DISPLAY CONSTANTS
 VBLANK_SCANLINES = $25		; 37
@@ -314,18 +316,64 @@ POS_SCREEN_CYCLES = 11
 
 ; -----------------------------------
 ; USER INPUT
-	MAC DISCREET_TRIGGER_PLAYER0
-		; return value: BPL on trigger, BMI on no trigger
-		LDX INPT4
+	MAC NEW_TRIGGER_CHECK
+		; {player trigger -> 0 or 1}
+		; requires __STATE_INPT4 or __STATE_INPT5
+		; clobbers X and A
+		; result = BPL on trigger, BMI on no trigger
+
+		IF {1} != 0 || {1} > 1
+			ECHO "MACRO ERROR: 'NEW_TRIGGER_CHECK': {1} must be 0 OR 1"
+			ERR
+		ENDIF
+
+		IF {1} == 0
+			LDX INPT4
+		ELSE 
+			LDX INPT5
+		ENDIF
 		BMI .done					; INPT4 is positive if trigger is pressed 
-		LDA __STATE_INPT4	; read state of INPT4 from when last read
-		; if __STATE_INPT4 is also negative, then there has not been a state change
+
+		; read state of trigger from when last read
+		IF {1} == 0
+			LDA __STATE_INPT4
+		ELSE
+			LDA __STATE_INPT5
+		ENDIF
+
+		; if stored state is also negative, then there has not been a state change
 		; if it is positive then there has been a state change
-		; this is opposite to the normal meaning of INPT4 so flip the bits to
+		; this is opposite to the normal meaning of the trigger check so flip the bits to
 		; correct the meaning
 		EOR #$FF
 .done
-		STX __STATE_INPT4	; store state of trigger for next read
+		; store state of trigger for next read
+		IF {1} == 0
+			STX __STATE_INPT4
+		ELSE
+			STX __STATE_INPT5
+		ELSE
+	ENDM
+
+	MAC NEW_SWITCH_CHECK
+		; {switch definition -> binary}
+		; requires __STATE_SWCHB
+		; clobbers X and A
+		; result = BNE not set, BEQ is set
+		LDA SWCHB
+		AND {1}
+		BNE .done
+		LDA __STATE_SWCHB
+		EOR #$FF
+		AND {1}
+.done
+	ENDM
+
+	MAC STORE_SWITCH_STATE
+		; requires __STATE_SWCHB
+		; clobbers A
+		LDA SWCHB
+		STA __STATE_SWCHB
 	ENDM
 
 ; -----------------------------------
