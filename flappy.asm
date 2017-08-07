@@ -80,28 +80,28 @@ PLAY_STATE_DROWN				= $FE
 ; note that we don't loop the swamp WSYNCs because there are so few and we'll
 ; be doing something useful and different on each line
 ; care should be taken to update this value, if we increase the number of WSYNCs
-VISIBLE_LINES_FOLIAGE			= $20
-VISIBLE_LINES_PLAYAREA			= DISPLAY_SCANLINES - VISIBLE_LINES_FOLIAGE - VISIBLE_LINES_SWAMP - VISIBLE_LINES_SCOREAREA
-VISIBLE_LINES_SWAMP				= $04
-VISIBLE_LINES_SCOREAREA		= DIGIT_LINES + $04
-VISIBLE_LINES_PER_FOLIAGE	= VISIBLE_LINES_FOLIAGE / 8
+SCANLINES_FOLIAGE			= $20
+SCANLINES_PLAYAREA			= DISPLAY_SCANLINES - SCANLINES_FOLIAGE - SCANLINES_SWAMP - SCANLINES_SCOREAREA
+SCANLINES_SWAMP				= $04
+SCANLINES_SCOREAREA		= DIGIT_LINES + $04
+SCANLINES_PER_FOLIAGE	= SCANLINES_FOLIAGE / 8
 
 ; point at which to change the sprite color - to enable effective swamp colouring
 ; the value should be odd because it is checked for on the odd scanlines
 SPLASH_LINE = $09
 
 ; screen boundaries for bird sprite
-BIRD_HIGH				=	VISIBLE_LINES_PLAYAREA
-BIRD_LOW				= VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA
+BIRD_HIGH				=	SCANLINES_PLAYAREA
+BIRD_LOW				= SCANLINES_SWAMP + SCANLINES_SCOREAREA
 
 	; DASM directives to output number of scanlines used
 	DASM_MESSAGE "Scanline Layout"
 	DASM_MESSAGE "---------------"
-	DASM_MESSAGE "FOLIAGE = ", VISIBLE_LINES_FOLIAGE
-	DASM_MESSAGE "PLAYAREA = ", VISIBLE_LINES_PLAYAREA
-	DASM_MESSAGE "SWAMP = ", VISIBLE_LINES_SWAMP
-	DASM_MESSAGE "SCORE AREA = ", VISIBLE_LINES_SCOREAREA
-	DASM_MESSAGE "TOTAL = ", VISIBLE_LINES_FOLIAGE + VISIBLE_LINES_PLAYAREA + VISIBLE_LINES_SWAMP + VISIBLE_LINES_SCOREAREA, "(", DISPLAY_SCANLINES, ")"
+	DASM_MESSAGE "FOLIAGE = ", SCANLINES_FOLIAGE
+	DASM_MESSAGE "PLAYAREA = ", SCANLINES_PLAYAREA
+	DASM_MESSAGE "SWAMP = ", SCANLINES_SWAMP
+	DASM_MESSAGE "SCORE AREA = ", SCANLINES_SCOREAREA
+	DASM_MESSAGE "TOTAL = ", SCANLINES_FOLIAGE + SCANLINES_PLAYAREA + SCANLINES_SWAMP + SCANLINES_SCOREAREA, "(", DISPLAY_SCANLINES, ")"
 
 
 ; ----------------------------------
@@ -228,7 +228,7 @@ SPLASH	HEX 00 00 24 42 24 00 18 00
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
 FOLIAGE .byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001, %01010000, %01010110, %00110011, %10101000, %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101, %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
-FOLIAGE_CHAOS_CYCLE	= 7
+MAX_FOLIAGE_IDX	= 7
 
 ; background forest - initial values
 FOREST_MID_0_INIT	.byte %00100000
@@ -257,7 +257,7 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 ; ===============
 ;
 ; * obstacle enable precalc table based on play ara of 153 lines
-;		- may need tuning if VISIBLE_LINES_PLAYAREA changes
+;		- may need tuning if SCANLINES_PLAYAREA changes
 ; * works as a barrel shifter
 ;		- 153 lines before AND after window
 ;		- there's room for optimisation
@@ -465,7 +465,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 
 		LDY FOLIAGE_SEED
 		INY
-		CPY #FOLIAGE_CHAOS_CYCLE
+		CPY #MAX_FOLIAGE_IDX
 		BCC .foliage_updated
 		LDY #0
 
@@ -1148,7 +1148,7 @@ game_vblank_end SUBROUTINE game_vblank_end
 	; prepare index registers
 	; Y register will count the number of lines in the foliage area of the display
 	; X register keeps pointer to next foliage data to stuff into playfield
-	LDY	#VISIBLE_LINES_FOLIAGE
+	LDY	#SCANLINES_FOLIAGE
 	LDX FOLIAGE_SEED
 
 	; reset all movmement registers - we'll be triggering HMOVE every scanline and we
@@ -1166,66 +1166,70 @@ game_vblank_end SUBROUTINE game_vblank_end
 
 foliage SUBROUTINE foliage
 
-	; A should be zero after VBLANK_KERNEL_END
-
-	; Y register contains the number of VISIBLE_LINES_FOLIAGE remaining
-
+	; A = SCANLINES_PER_FOLIAGE (starts at zero) (clobbered temporarily every SCANLINES_PER_FOLIAGE scanlines)
+	; Y register contains the number of SCANLINES_FOLIAGE remaining
 	; X register contains the FOLIAGE_SEED value
+
+	; laboured description of FOLIAGE and MAX_FOLIAGE_IDX
+	; ===================================================
 	;
-	; we increase X after every time we access it (after every change to the playfield - 3 per cycle)
-	; in this subroutine: there are VISIBLE_LINES_FOLIAGE
-	; scanlines in this part of the display; the main body of the routine is run every
-	; VISIBLE_LINES_PER_FOLIAGE; so:
+	; we increase X (FOLIAGE_SEED)  after every time we access it (after every change to the playfield)
+	; we change the playfield every SCANLINES_PER_FOLIAGE scanlines 
+	; there are SCANLINES_FOLIAGE scanlines in the foliage are of of the display
+	; therefore the final value of X at the end of the foliage subroutine is:
 	;
-	;			max_foliage_index = FOLIAGE_SEED + (VISIBLE_LINES_FOLIAGE / VISIBLE_LINES_PER_FOLIAGE * 3) - 1
+	;			final X = FOLIAGE_SEED + (SCANLINES_FOLIAGE / SCANLINES_PER_FOLIAGE * 3) - 1
 	;
-	; as is, the routine would draw the same foliage every frame. to introduce some randomness,
-	; FOLIAGE_SEED is increased by one every THREE_CYCLE frames in the vblank kernel. the maximum
-	; vaulue of FOLIAGE_SEED at the start of the foliage subroutine is therefore:
+	; this would mean that the same foliage is drawn every frame. to introduce some randomness,
+	; FOLIAGE_SEED is increased by one every THREE_CYCLE frames (in the vblank kernel).
+	; the maximum vaulue of FOLIAGE_SEED at the start of the foliage subroutine is therefore:
 	;
-	;			FOLIGE_CHAOS_CYCLE = sizeof FOLIAGE memory space - max_foliage_index
+	;			MAX_FOLIAGE_IDX = sizeof(FOLIAGE memory space) - max_foliage_index
 
 .next_foliage
-	; A = VISIBLE_LINES_PER_FOLIAGE 
-	CMP #$0
-	BNE .cont_foliage
+	CMP #$0									; 2
+	BNE .cont_foliage				; 2/3
 
+	; stuff new values into playfield
 	; we're going to clobber the accumulator but that's okay, we're
 	; going to reset it after setting the playfield
 
-	LDA FOLIAGE,X
-	STA PF0
-	INX
-	LDA FOLIAGE,X
-	STA PF1
-	INX
-	LDA FOLIAGE,X
-	STA PF2
-	INX
+	LDA FOLIAGE,X						; 4
+	STA PF0									; 3
+	INX											; 2
+	LDA FOLIAGE,X						; 4
+
+; end of HBLANK
+
+	STA PF1									; 3
+	INX											; 2
+	LDA FOLIAGE,X						; 4
+	STA PF2									; 2
+	INX											; 2
 
 	; start drawing obstacles if we're halfway through the foliage area
-	CPY #VISIBLE_LINES_FOLIAGE / 2
-	BCS .reset_foliage_block_count
-	LDA #$2
-	AND $00
-	STA ENAM0
-	AND $00
-	STA ENAM1
+	CPY #SCANLINES_FOLIAGE / 2		; 2
+	BCS .done_obstacle_check			; 2/3
+	LDA #$2												; 2
+	AND $00												; 2
+	STA ENAM0											; 3
+	STA ENAM1											; 3
+.done_obstacle_check
 
-.reset_foliage_block_count
-	LDA #VISIBLE_LINES_PER_FOLIAGE
+	; re-initialise accumulator
+	LDA #SCANLINES_PER_FOLIAGE		; 2
 
 .cont_foliage
-	; A = VISIBLE_LINES_PER_FOLIAGE 
-	SEC
-	SBC #$1
+	; decrease SCANLINE_FOLIAGE count
+	SEC													; 2
+	SBC #$1											; 2
 
 	DEY													; 2
 	BEQ game_play_area_prepare	; 2/3
 
-	STA WSYNC
-	STA HMOVE
-	JMP .next_foliage			; 3
+	STA WSYNC										; 3
+	STA HMOVE										; 3
+	JMP .next_foliage						; 3
 
 
 ; ----------------------------------
@@ -1280,7 +1284,7 @@ game_play_area_prepare SUBROUTINE game_play_area_prepare
 
 	; prepare for loop
 
-	LDY #VISIBLE_LINES_PLAYAREA
+	LDY #SCANLINES_PLAYAREA
 	LDX #SPRITE_LINES
 
 game_play_area SUBROUTINE game_play_area
@@ -1302,7 +1306,7 @@ game_play_area SUBROUTINE game_play_area
 	STA .MISSILE_1_NUSIZ
 
 	; loop alternates between .set_player_sprites and .set_missile_sprites starting with .set_player_sprites
-	; Y register contains the number of VISIBLE_LINES_PLAYAREA remaining
+	; Y register contains the number of SCANLINES_PLAYAREA remaining
 	; X register contains number of SPRITE_LINES remaining
 
 	; EVEN NUMBERED SCANLINES
