@@ -158,9 +158,9 @@ POS_SCREEN_CYCLES = 11
 			ERR
 		ENDIF
 		IF {4} >= 0
-			LDA #(01 + {4})
+			LDA #(00 + {4})
 		ELSE
-			LDA #(01 + ({3} * -{4}))
+			LDA #(00 + ({3} * -{4}))
 		ENDIF
 		IF {2} != NULL
 			STA {2}
