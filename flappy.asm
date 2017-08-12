@@ -113,7 +113,6 @@ BIRD_LOW				= SCANLINES_SWAMP + SCANLINES_SCOREAREA
 
 ; VCS_EXTRA.H SCOPE
 ; - variables beginning with _ are required by routines in vcs_extra.h
-__SLEEP_TABLE_JMP				ds 2
 __MULTI_COUNT_STATE			ds 1
 __STATE_INPT4						ds 1
 __STATE_SWCHB						ds 1
@@ -319,9 +318,7 @@ BRANCHES_LEN	= 7
 FLIGHT_PATTERNS
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
 
-	; we'll be using fine positioning from vcs_extra.h so include sleep table definitions
-	DEF_POS_SLEEP_TABLE
-
+	DEF_FINE_POS_TABLE
 
 ; ----------------------------------
 ; * MACROS - FLIGHT PATTERN
@@ -612,8 +609,8 @@ game_restart SUBROUTINE game_restart
 	VERTICAL_SYNC
 
 	; position both obstacles inside the activision-border
-	FINE_POS_SCREEN_LEFT RESM0, OB_0_HPOS, 4, 0
-	FINE_POS_SCREEN_LEFT RESM1, OB_1_HPOS, 4, 0
+	FINE_POS_LEFT RESM0, OB_0_HPOS, 0, 4
+	FINE_POS_LEFT RESM1, OB_1_HPOS, 0, 4
 
 	; obstacle 0 starts moving immediately - obstacle 1 will begin moving later
 	LDA #1
@@ -752,7 +749,7 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 
 .prepare_display
 	MULTI_COUNT_TWO_CMP
-	BEQ .display_logo
+	BEQ .display_ready_logo
 
 .display_empty
 	LDA #<EMPTY
@@ -761,7 +758,7 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	STA ADDRESS_SPRITE_1
 	JMP game_vblank_end
 
-.display_logo
+.display_ready_logo
 	LDA #90
 	STA BIRD_VPOS
 	LDA #OKAY_COLOR
@@ -771,8 +768,8 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	STA ADDRESS_SPRITE_0
 	LDA #<TEXT_QMARK
 	STA ADDRESS_SPRITE_1
-	FINE_POS_SCREEN RESP0, #74
-	FINE_POS_SCREEN RESP1, #90
+	FINE_POS RESP0, #72
+	FINE_POS RESP1, #88
 	JMP game_vblank_end
 
 
@@ -877,13 +874,13 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
 	; flicker obstacle 0 and 1 positions and display both using only obstacle 1
 	; o hiding obstacle 0 in the activision border
 	; o we do this because we don't want the setting of COLUP0 to SPLASH_COLOR to be visible
-	FINE_POS_SCREEN_LEFT RESM0, NULL, 4, 0
+	FINE_POS_LEFT RESM0, NULL, 0, 4
 	MULTI_COUNT_TWO_CMP
 	BEQ .show_obstacle_1
-	FINE_POS_SCREEN RESM1, OB_0_HPOS
+	FINE_POS RESM1, OB_0_HPOS
 	JMP .flipped_obstacles
 .show_obstacle_1
-	FINE_POS_SCREEN RESM1, OB_1_HPOS
+	FINE_POS RESM1, OB_1_HPOS
 .flipped_obstacles
 
 	SWAP OB_0, OB_1
@@ -1087,10 +1084,10 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 	POSITION_BIRD_SPRITE
 
 	; progress and then position osbtacles
-	FINE_POS_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, TRUE
-	FINE_POS_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, TRUE
-	FINE_POS_SCREEN RESM0, OB_0_HPOS
-	FINE_POS_SCREEN RESM1, OB_1_HPOS
+	FINE_MOVE_LEFT OB_0_HPOS, OB_0_SPEED, TRUE
+	FINE_MOVE_LEFT OB_1_HPOS, OB_1_SPEED, TRUE
+	FINE_POS RESM0, OB_0_HPOS
+	FINE_POS RESM1, OB_1_HPOS
 
 .scoring_check
 	LDA PLAY_STATE
@@ -1526,8 +1523,8 @@ display_score SUBROUTINE display_score
 	STA COLUP0
 	STA COLUP1
 
-	POS_SCREEN_RIGHT RESP0, 10
-	POS_SCREEN_RIGHT RESP1, 6
+	SIMPLE_POS_RIGHT RESP0, 8
+	SIMPLE_POS_RIGHT RESP1, 4
 
 	; get address of unit digit
 	LDA SCORE
@@ -1545,8 +1542,8 @@ display_score SUBROUTINE display_score
 	STA COLUP0
 	STA COLUP1
 
-	POS_SCREEN_RIGHT RESP0, 22
-	POS_SCREEN_RIGHT RESP1, 18
+	SIMPLE_POS_RIGHT RESP0, 19
+	SIMPLE_POS_RIGHT RESP1, 15
 
 	; get address of unit digit
 	LDA HISCORE
@@ -1674,11 +1671,11 @@ game_overscan SUBROUTINE game_overscan
 SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
 		; no arguments
 		; clobbers A and X
-		FINE_POS_SCREEN RESP0, BIRD_HPOS
+		FINE_POS RESP0, BIRD_HPOS
 		LDA BIRD_HPOS
 		CLC
 		ADC BIRD_HEAD_OFFSET
-		FINE_POS_SCREEN_A RESP1
+		FINE_POS_A RESP1
 		RTS
 
 ; ----------------------------------
