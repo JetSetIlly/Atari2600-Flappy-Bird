@@ -103,7 +103,7 @@ SELECT_SWITCH = %00000010
 ;
 ; side effects are listed on a single line, distinguished by a leading +
 ;
-; . affected registers/flags are
+; . affected registers/flags denoted by:
 ;		. A = Accumulator
 ;		. X = X register
 ;		. Y = Y register

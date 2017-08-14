@@ -189,6 +189,10 @@ SPLASH_COLOR					ds 1
 SCORE									ds 1
 HISCORE								ds 1
 
+; audio
+SFX_NEW_EVENT					ds 1
+SFX_FRAMES						ds 1
+
 	; DASM directive - echo number of bytes left in RAM
 	DASM_MESSAGE "",($100 - *) , "bytes of RAM left"
 
@@ -319,6 +323,25 @@ FLIGHT_PATTERNS
 EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, 6
 
 	DEF_FINE_POS_TABLE
+
+
+; ----------------------------------
+; * DATA - AUDIO
+
+SFX_NONE				= $FF
+SFX_OFF 				= $00
+SFX_FLAP				= $04
+SFX_COLLISION		= $08
+SFX_SPLASH			= $0C
+
+	DASM_MESSAGE "AUDIO_TABLE start location ", *
+
+; noise-tone, frequency, volume, frames
+AUDIO_TABLE
+. HEX 00 00 00 00		; nothing
+. HEX 08 10 15 01		; flap
+. HEX 00 00 00 00		; collision
+. HEX 00 00 00 00		; splash
 
 ; ----------------------------------
 ; * MACROS - FLIGHT PATTERN
@@ -1018,6 +1041,10 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	; ... similarly for BRANCH_SEED
 	INC BRANCH_SEED
 
+	; new flap sound effect
+	LDA #SFX_FLAP
+	STA SFX_NEW_EVENT
+
 	; start new fly animation
 	LDX #1
 	STX PATTERN_INDEX
@@ -1606,7 +1633,6 @@ game_overscan SUBROUTINE game_overscan
 .done_head_check
 	STORE_SWITCH_STATE
 
-
 	; reset player sprites, color and NUSIZ after scoring subroutine
 	; o color may change again in the ready state for the "OK?" text
 	; o NUSIZ may change in drowning play state
@@ -1657,6 +1683,34 @@ game_overscan SUBROUTINE game_overscan
 	SWAP OB_0_BRANCH, OB_1_BRANCH
 .done_drowning_compensation
 
+	; audio engine
+	LDX SFX_NEW_EVENT
+	BMI .audio_cont
+	; load new audio data if SFX_NEW_EVENT is not SFX_NONE
+	LDA AUDIO_TABLE,X
+	STA AUDC0
+	INX
+	LDA AUDIO_TABLE,X
+	STA AUDF0
+	INX
+	LDA AUDIO_TABLE,X
+	STA AUDV0
+	INX
+	LDA AUDIO_TABLE,X
+	STA SFX_FRAMES
+	; new sfx event has been handled
+	LDA #SFX_NONE
+	STA SFX_NEW_EVENT
+.audio_cont
+	; decrease number of frames until it reaches zero
+	CMP SFX_FRAMES
+	BEQ .audio_done
+	DEC SFX_FRAMES
+	BNE .audio_done
+	; end of last audio event, create new sfx off event 
+	LDA #SFX_OFF
+	STA SFX_NEW_EVENT
+.audio_done
 
 	MULTI_COUNT_UPDATE
 
