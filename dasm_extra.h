@@ -11,4 +11,12 @@ _MSG_MARKER = ". "
 		ECHO _MSG_MARKER, {#}
 	ENDM
 
+	MAC PAGE_CHECK
+_PAGE_CHECK = >*
+	ENDM
 
+	MAC PAGE_CHECK_END
+	IF _PAGE_CHECK != >*
+		DASM_MACRO_ERROR "page check fail:", {1}, "spans more than one page"
+	ENDIF
+	ENDM

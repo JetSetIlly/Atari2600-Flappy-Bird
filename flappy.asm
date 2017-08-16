@@ -3,6 +3,7 @@
 	include vcs.h
 	include macro.h
 	include vcs_extra.h
+	include vcs_sfx.h
 	include macro_extra.h
 	include dasm_extra.h
 
@@ -112,11 +113,15 @@ BIRD_LOW				= SCANLINES_SWAMP + SCANLINES_SCOREAREA
 
 
 ; VCS_EXTRA.H SCOPE
-; - variables beginning with _ are required by routines in vcs_extra.h
+; - variables beginning with __ are required by routines in vcs_*.h
 __MULTI_COUNT_STATE			ds 1
 __STATE_INPT4						ds 1
 __STATE_SWCHB						ds 1
 
+; VCS_AUDIO.H SCOPE
+__SFX_NEW_EVENT					ds 1
+__SFX_QUEUE_EVENT				ds 1
+__SFX_SUB_FRAMES				ds 1
 
 ; LOCAL SCOPE
 ; - can be resused between subroutines
@@ -188,10 +193,6 @@ SPLASH_COLOR					ds 1
 ; player score
 SCORE									ds 1
 HISCORE								ds 1
-
-; audio
-SFX_NEW_EVENT					ds 1
-SFX_FRAMES						ds 1
 
 	; DASM directive - echo number of bytes left in RAM
 	DASM_MESSAGE "",($100 - *) , "bytes of RAM left"
@@ -326,22 +327,35 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 
 
 ; ----------------------------------
-; * DATA - AUDIO
+; * DATA - SFX
 
-SFX_NONE				= $FF
-SFX_OFF 				= $00
-SFX_FLAP				= $04
-SFX_COLLISION		= $08
-SFX_SPLASH			= $0C
+	PAGE_CHECK
 
-	DASM_MESSAGE "AUDIO_TABLE start location ", *
+;		queue instruction; frames; noise/tone; frequency; volume
+;                 |      |       |             |       |
+;                 |  +---+       |             |       |
+;                 |  |           |             |       |
+;                 |  |   +-------+             |       |
+;									|  |   |                     |       |
+;									|  |   |  +------------------+       |
+;                 |  |   |  |                          |
+;                 |  |   |  |  +-----------------------+
+;									|  |   |  |  |
+SFX_TABLE			HEX FF 00 00 00 00
+SFX_FLAP			HEX FF 01 08 10 09
+SFX_COLLISION	HEX 00 06 07 31 09
+.							HEX 00 06 06 30 07
+.							HEX FF 06 06 31 04
+SFX_SPLASH		HEX 00 04 08 04 09
+.							HEX	00 04 08 03 09
+.							HEX	00 05 08 05 09
+.							HEX	00 06 08 06 06
+.							HEX	00 06 08 08 03
+.							HEX	00 06 08 09 01
+.							HEX	FF 02 06 09 01
 
-; noise-tone, frequency, volume, frames
-AUDIO_TABLE
-. HEX 00 00 00 00		; nothing
-. HEX 08 10 15 01		; flap
-. HEX 00 00 00 00		; collision
-. HEX 00 00 00 00		; splash
+	PAGE_CHECK_END "SFX_TABLE"
+
 
 ; ----------------------------------
 ; * MACROS - FLIGHT PATTERN
@@ -473,6 +487,8 @@ AUDIO_TABLE
 
 		; obstacle flicker phase correction done in the overscan, otherwise
 		; there will be a frame where the wrong obstacle definitions are used
+
+		SFX_LOAD SFX_SPLASH
 
 	ENDM
 
@@ -674,6 +690,8 @@ game_restart SUBROUTINE game_restart
 	; --
 	LDA #BIRD_COLOR
 	STA SPLASH_COLOR
+
+	SFX_ENGINE_INIT
 
 
 ; ----------------------------------
@@ -1015,6 +1033,7 @@ game_vblank_collisions SUBROUTINE game_vblank_collisions
 	STA ADDRESS_SPRITE_0
 	LDA #PLAY_STATE_COLLISION
 	STA PLAY_STATE
+	SFX_LOAD SFX_COLLISION
 
 .done_vblank_collisions
 	JMP game_vblank_position_sprites
@@ -1042,8 +1061,7 @@ game_vblank_sprite SUBROUTINE game_vblank_sprite
 	INC BRANCH_SEED
 
 	; new flap sound effect
-	LDA #SFX_FLAP
-	STA SFX_NEW_EVENT
+	SFX_LOAD SFX_FLAP
 
 	; start new fly animation
 	LDX #1
@@ -1683,34 +1701,7 @@ game_overscan SUBROUTINE game_overscan
 	SWAP OB_0_BRANCH, OB_1_BRANCH
 .done_drowning_compensation
 
-	; audio engine
-	LDX SFX_NEW_EVENT
-	BMI .audio_cont
-	; load new audio data if SFX_NEW_EVENT is not SFX_NONE
-	LDA AUDIO_TABLE,X
-	STA AUDC0
-	INX
-	LDA AUDIO_TABLE,X
-	STA AUDF0
-	INX
-	LDA AUDIO_TABLE,X
-	STA AUDV0
-	INX
-	LDA AUDIO_TABLE,X
-	STA SFX_FRAMES
-	; new sfx event has been handled
-	LDA #SFX_NONE
-	STA SFX_NEW_EVENT
-.audio_cont
-	; decrease number of frames until it reaches zero
-	CMP SFX_FRAMES
-	BEQ .audio_done
-	DEC SFX_FRAMES
-	BNE .audio_done
-	; end of last audio event, create new sfx off event 
-	LDA #SFX_OFF
-	STA SFX_NEW_EVENT
-.audio_done
+	SFX_ENGINE
 
 	MULTI_COUNT_UPDATE
 
