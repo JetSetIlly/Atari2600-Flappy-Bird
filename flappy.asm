@@ -331,28 +331,28 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 
 	PAGE_CHECK
 
-;		queue instruction; frames; noise/tone; frequency; volume
-;                 |      |       |             |       |
-;                 |  +---+       |             |       |
-;                 |  |           |             |       |
-;                 |  |   +-------+             |       |
-;									|  |   |                     |       |
-;									|  |   |  +------------------+       |
-;                 |  |   |  |                          |
-;                 |  |   |  |  +-----------------------+
-;									|  |   |  |  |
-SFX_TABLE			HEX FF 00 00 00 00
-SFX_FLAP			HEX FF 01 08 03 09
-SFX_COLLISION	HEX 00 06 07 31 09
-.							HEX 00 06 06 30 07
-.							HEX FF 06 06 31 04
-SFX_SPLASH		HEX 00 04 08 04 09
-.							HEX	00 04 08 03 09
-.							HEX	00 05 08 05 09
-.							HEX	00 06 08 06 06
-.							HEX	00 06 08 08 03
-.							HEX	00 06 08 09 01
-.							HEX	FF 02 06 09 01
+;															volume
+;                                 |
+;  								    	frequency |
+;                           | |   |
+;  							noise/tone  | |   |
+;                       |   | |   |
+;								frames  |   | |   |
+;                    |  |   | |   |
+;				instruction  |  |   | |   |
+;									|  |  |   | |   |
+SFX_TABLE			HEX FF 00 00 00 00 00
+SFX_FLAP			HEX FF 01 F8 03 0F 49
+SFX_COLLISION	HEX 00 06 87 31 01 49
+.							HEX 00 06 06 30 00 07
+.							HEX FF 06 06 31 00 04
+SFX_SPLASH		HEX 00 04 08 04 00 09
+.							HEX	00 04 08 03 00 09
+.							HEX	00 05 08 05 00 09
+.							HEX	00 06 08 06 00 06
+.							HEX	00 06 08 08 00 03
+.							HEX	00 06 F8 09 02 21
+.							HEX	FF 02 F6 09 03 11
 
 	PAGE_CHECK_END "SFX_TABLE"
 

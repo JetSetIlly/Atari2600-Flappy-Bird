@@ -2,20 +2,27 @@
 ; these functions require a table of values labelled SFX_TABLE
 ; SFX_TABLE byte pattern:
 ;
-;		queue instruction; frames; noise/tone; frequency; volume
-;
 ;		queue instruction  -> FF == no queue (sound off)
 ;													00 == jump SFX_ENTRY_LEN
 ;
 ;		frames						-> 1 to 255 (0 will result in odd behavior)
-;		noise/tone				-> 00 to 0F	(see noise/tone table below)
-;		frequency					-> 00 to 31
-;		volume						-> 00 to 0F
+;
+;		noise/tone 				-> 00 to FF	(see noise/tone table below)
+;											-> high nibble is channel 1
+;											-> low nibble is channel 0
+;
+;		frequency 0				-> 00 to 31
+;
+;		frequency 1				-> 00 to 31
+;
+;		volume						-> 00 to FF
+;											-> high nibble is channel 1
+;											-> low nibble is channel 0
 ;
 ; the first sequence must be the off or idle state for the sfx engine
 ; for example:
 ;
-;		SFX_TABLE FF 00 00 00 00
+;		SFX_TABLE FF 00 00 00 00 00
 
 ; noise/tone values (info taken from Paul Slocum's "Atari 2600 Music And Sound Programming Guide" v1.02)
 
@@ -31,7 +38,7 @@
 ; 0F	Buzz    atonal buzz, good for percussion
 
 SFX_NO_EVENT	= $FF
-SFX_ENTRY_LEN = $05
+SFX_ENTRY_LEN = $06
 
 	MAC SFX_LOAD
 		; > {sfx address} [V]
@@ -73,33 +80,66 @@ SFX_ENTRY_LEN = $05
 		; ! __SFX_NEW_EVENT
 		; ! __SFX_QUEUE_EVENT
 		; + ACZVN
+
+		; check for new sfx event
 		LDX __SFX_NEW_EVENT
 		CPX #SFX_NO_EVENT
 		BEQ .sfx_cont
 .sfx_new_event
-		; load new sfx data if __SFX_NEW_EVENT is not SFX_NO_EVENT
 
-		; load queued event
+		; load queue instruction
 		LDA SFX_TABLE,X
 		CMP #SFX_NO_EVENT
-		BEQ .sfx_queued_event
+		BEQ .sfx_queue_event
+		; if the queue instruction is not the no event value
+		; then queue the next sfx event in the sequence
 		TXA
 		CLC
 		ADC #SFX_ENTRY_LEN
-.sfx_queued_event
+.sfx_queue_event
 		STA __SFX_QUEUE_EVENT
+
+		; load the rest of the event data
 		INX
 		LDA SFX_TABLE,X
 		STA __SFX_SUB_FRAMES
+
+		; load low nibble into control channel 0
 		INX
 		LDA SFX_TABLE,X
+		AND #$0F
 		STA AUDC0
+
+		; load high nibble into control channel 1
+		LDA SFX_TABLE,X
+		LSR
+		LSR
+		LSR
+		LSR
+		AND #$0F
+		STA AUDC1
+
 		INX
 		LDA SFX_TABLE,X
 		STA AUDF0
+
+		INX
+		LDA SFX_TABLE,X
+		STA AUDF1
+
+		; load low nibble into volume channel 0
 		INX
 		LDA SFX_TABLE,X
 		STA AUDV0
+		LDA SFX_TABLE,X
+
+		; load high nibble into volume channel 1
+		LSR
+		LSR
+		LSR
+		LSR
+		AND #$0F
+		STA AUDV1
 
 		; new sfx event has been handled
 		LDA #SFX_NO_EVENT
