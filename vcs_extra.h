@@ -408,7 +408,7 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 	MAC __SIMPLE_POS
 		;	> {reset address} [RW]
 		; > {machine cycles} [V]
-		; + A
+		; + ACZVN
 
 		STA WSYNC
 		SLEEP #({2} - 1)		; -1 to account for the following STA
@@ -418,7 +418,7 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 	MAC SIMPLE_POS_LEFT
 		;	> {reset address} [RW]
 		; > {offset} [V]
-		; + A
+		; + ACZVN
 
 		IFCONST RANGE_CHECKING
 			IF {2} < 0 || {2} > 48
@@ -431,7 +431,7 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 	MAC SIMPLE_POS_MID
 		;	> {reset address} [RW]
 		; > {offset} [V]
-		; + A
+		; + ACZVN
 
 		IFCONST RANGE_CHECKING
 			IF ({2} < -25) || ({2} > 26)
@@ -450,7 +450,7 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 	MAC SIMPLE_POS_RIGHT
 		;	> {reset address} [RW]
 		; > {offset} [V]
-		; + A
+		; + ACZVN
 
 		IFCONST RANGE_CHECKING
 			IF {2} < 0 || {2} > 50

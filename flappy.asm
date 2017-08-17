@@ -342,7 +342,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 ;                 |  |   |  |  +-----------------------+
 ;									|  |   |  |  |
 SFX_TABLE			HEX FF 00 00 00 00
-SFX_FLAP			HEX FF 01 08 10 09
+SFX_FLAP			HEX FF 01 08 03 09
 SFX_COLLISION	HEX 00 06 07 31 09
 .							HEX 00 06 06 30 07
 .							HEX FF 06 06 31 04

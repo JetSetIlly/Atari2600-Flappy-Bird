@@ -17,7 +17,7 @@
 ;
 ;		SFX_TABLE FF 00 00 00 00
 
-; noise/tone values (taken from Paul Slocum's "Atari 2600 Music And Sound Programming Guide" v1.02)
+; noise/tone values (info taken from Paul Slocum's "Atari 2600 Music And Sound Programming Guide" v1.02)
 
 ; #		Name		Description
 ; =======================
@@ -34,11 +34,20 @@ SFX_NO_EVENT	= $FF
 SFX_ENTRY_LEN = $05
 
 	MAC SFX_LOAD
+		; > {sfx address} [V]
+		; ! SFX_TABLE
+		; ! __SFX_NEW_EVENT
+		; + ACZVN
 		LDA #({1} - SFX_TABLE)
 		STA __SFX_NEW_EVENT
 	ENDM
 
 	MAC SFX_FORCE_OFF
+		; ! SFX_TABLE
+		; ! __SFX_SUB_FRAMES
+		; ! __SFX_NEW_EVENT
+		; ! __SFX_QUEUE_EVENT
+		; + ACZVN
 		LDA #$00
 		STA AUDC0
 		STA AUDF0
@@ -50,10 +59,20 @@ SFX_ENTRY_LEN = $05
 	ENDM
 
 	MAC SFX_ENGINE_INIT
+		; ! SFX_TABLE
+		; ! __SFX_SUB_FRAMES
+		; ! __SFX_NEW_EVENT
+		; ! __SFX_QUEUE_EVENT
+		; + ACZVN
 		SFX_FORCE_OFF
 	ENDM
 
 	MAC SFX_ENGINE
+		; ! SFX_TABLE
+		; ! __SFX_SUB_FRAMES
+		; ! __SFX_NEW_EVENT
+		; ! __SFX_QUEUE_EVENT
+		; + ACZVN
 		LDX __SFX_NEW_EVENT
 		CPX #SFX_NO_EVENT
 		BEQ .sfx_cont
