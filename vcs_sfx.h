@@ -1,5 +1,8 @@
 
-; these functions require a table of values labelled SFX_TABLE
+	include vcs_mdl.txt
+	include dasm_extra.h
+
+; these macros require a table of values labelled SFX_TABLE
 ; SFX_TABLE byte pattern:
 ;
 ;		queue instruction  -> FF == no queue (sound off)
@@ -36,6 +39,13 @@
 ; 08	Noise   white noise
 ; 0C	Lead    lower pitch square wave sound
 ; 0F	Buzz    atonal buzz, good for percussion
+
+; the macros also require the following:
+;
+; __SFX_SUB_FRAMES
+; __SFX_NEW_EVENT
+; __SFX_QUEUE_EVENT
+;
 
 SFX_NO_EVENT	= $FF
 SFX_ENTRY_LEN = $06
@@ -119,10 +129,12 @@ SFX_ENTRY_LEN = $06
 		AND #$0F
 		STA AUDC1
 
+		; frequency channel 0
 		INX
 		LDA SFX_TABLE,X
 		STA AUDF0
 
+		; frequency channel 1
 		INX
 		LDA SFX_TABLE,X
 		STA AUDF1

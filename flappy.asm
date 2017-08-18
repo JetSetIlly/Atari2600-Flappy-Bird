@@ -3,6 +3,7 @@
 	include vcs.h
 	include macro.h
 	include vcs_extra.h
+	include vcs_positioning.h
 	include vcs_sfx.h
 	include macro_extra.h
 	include dasm_extra.h
@@ -199,11 +200,21 @@ HISCORE								ds 1
 
 
 ; ----------------------------------
-; * DATA - DATA / OBSTACLE DATA, ETC.
+; * DATA - GFX
+
 	SEG
 	ORG $F000		; start of cart ROM
 	
-DATA_SEGMENT
+DATA_SEGMENT 
+
+; graphics data
+; =============
+
+; number of lines in each sprite - same for everything, except digits
+SPRITE_LINES		=	7
+
+; number of line each digit
+DIGIT_LINES	= 4
 
 EMPTY						HEX 00 00 00 00 00 00 00 00
 
@@ -211,24 +222,43 @@ EMPTY						HEX 00 00 00 00 00 00 00 00
 TEXT_OK					HEX 00 EA AA AA AC EA 00 00
 TEXT_QMARK			HEX 00 18 00 1E 42 7E 00 00 
 
-; sprite data
+; bird sprite - heads
 WINGS
 WINGS_UP				HEX	00 00 00 00 30 70 60 40 
 WINGS_FLAT			HEX	00 00 00 00 30 60 00 00
 WINGS_DOWN			HEX	00 40 60 70 30 00 00 00
 
+; bird sprite - wings
+	PAGE_CHECK
 HEADS
 HEAD_GIRL_A			HEX 00 00 00 00 20 1C 18 20
 HEAD_BOY_A			HEX 00 00 00 00 20 1C 18 00
 HEAD_GIRL_B			HEX 00 00 00 00 20 1C 58 20
 HEAD_BOY_B			HEX 00 00 00 00 20 1C 18 04
-HEADS_TABLE			.byte <HEAD_GIRL_A, <HEAD_BOY_A, <HEAD_GIRL_B, <HEAD_BOY_B
+	PAGE_CHECK_END "HEADS"
+
 NUM_HEADS				= 4
+HEADS_TABLE			.byte <HEAD_GIRL_A, <HEAD_BOY_A, <HEAD_GIRL_B, <HEAD_BOY_B
 
-SPRITE_LINES		=	7
-
+; splash sprite 
 _SPLASH HEX 18 18 
 SPLASH	HEX 00 00 24 42 24 00 18 00
+
+; digits - used for scoring
+	PAGE_CHECK
+DIGITS
+DIGIT_0	HEX 3C 24 24 24 3C
+DIGIT_1	HEX 08 08 08 18 08
+DIGIT_2	HEX 3C 20 18 04 3C
+DIGIT_3	HEX 3C 04 08 04 3C
+DIGIT_4	HEX 08 3C 28 20 20
+DIGIT_5	HEX 38 04 3C 20 3C
+DIGIT_6	HEX 3C 24 3C 20 20
+DIGIT_7	HEX 04 04 0C 04 3C
+DIGIT_8	HEX 3C 24 3C 24 3C
+DIGIT_9	HEX 04 04 3C 24 3C
+	PAGE_CHECK_END "DIGITS"
+DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
 
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
@@ -243,20 +273,9 @@ FOREST_STATIC_0		.byte %10000000
 FOREST_STATIC_1		.byte %00100000	
 FOREST_STATIC_2		.byte %10010000
 
-; digits - used for scoring
-DIGITS
-DIGIT_0	HEX 3C 24 24 24 3C
-DIGIT_1	HEX 08 08 08 18 08
-DIGIT_2	HEX 3C 20 18 04 3C
-DIGIT_3	HEX 3C 04 08 04 3C
-DIGIT_4	HEX 08 3C 28 20 20
-DIGIT_5	HEX 38 04 3C 20 3C
-DIGIT_6	HEX 3C 24 3C 20 20
-DIGIT_7	HEX 04 04 0C 04 3C
-DIGIT_8	HEX 3C 24 3C 24 3C
-DIGIT_9	HEX 04 04 3C 24 3C
-DIGIT_LINES	= 4
-DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <DIGIT_6, <DIGIT_7, <DIGIT_8, <DIGIT_9
+
+; ----------------------------------
+; * DATA - OBSTACLES
 
 ; obstacles tables
 ; ===============
@@ -308,6 +327,10 @@ OBSTACLES_LEN	= 7
 BRANCHES			HEX 18 24 30 38 44 58 70
 BRANCHES_LEN	= 7
 
+
+; ----------------------------------
+; * DATA - FLIGHT PATTERNS
+
 ; flight patterns
 ; ===============
 ; first byte is the length of the flight pattern proper (not including last byte or the first
@@ -334,6 +357,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 ;															volume
 ;                                 |
 ;  								    	frequency |
+;														0 1   |
 ;                           | |   |
 ;  							noise/tone  | |   |
 ;                       |   | |   |
@@ -342,7 +366,7 @@ EASY_FLIGHT_PATTERN .byte 20, 4, 4, 4, 4, 4, 0, 0, 0, -1, -2, -3, -4, -5, -6, -7
 ;				instruction  |  |   | |   |
 ;									|  |  |   | |   |
 SFX_TABLE			HEX FF 00 00 00 00 00
-SFX_FLAP			HEX FF 01 F8 03 0F 49
+SFX_FLAP			HEX FF 01 F8 03 0F 79
 SFX_COLLISION	HEX 00 06 87 31 01 49
 .							HEX 00 06 06 30 00 07
 .							HEX FF 06 06 31 00 04
@@ -351,8 +375,8 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 .							HEX	00 05 08 05 00 09
 .							HEX	00 06 08 06 00 06
 .							HEX	00 06 08 08 00 03
-.							HEX	00 06 F8 09 02 21
-.							HEX	FF 02 F6 09 03 11
+.							HEX	00 06 08 09 02 01
+.							HEX	FF 02 06 09 03 01
 
 	PAGE_CHECK_END "SFX_TABLE"
 
@@ -361,9 +385,8 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 ; * MACROS - FLIGHT PATTERN
 
 	MAC APPLY_FLIGHT_PATTERN
-		; no arguments
-		; clobbers A and Y
-		; leaves PATTERN_INDEX in Y
+		; < S = PATTERN_INDEX
+		; ! AYCZVN
 
 		LDY PATTERN_INDEX
 		LDA (FLIGHT_PATTERN),Y
@@ -372,9 +395,9 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 	ENDM
 
 	MAC RESET_FLIGHT_PATTERN
-		; {death spiral -> boolean}
-		; clobbers A and Y
-		; alters PATTERN_INDEX
+		; > {death spiral} [boolean
+		; ! AYCZVN
+		; + PATTERN_INDEX
 
 		; initialise PATTERN_INDEX for selected FLIGHT_PATTERN
 		; (see FLIGHT_PATTERN definitions for memory layout explanation)
@@ -396,10 +419,10 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 	ENDM
 
 	MAC UPDATE_FLIGHT_PATTERN 
-		; {cycle pattern -> boolean}
-		; requires PATTERN_INDEX in Y
-		; clobbers A and Y
-		; alters PATTERN_INDEX
+		; > {cycle pattern} [B}
+		; > Y = PATTERN_INDEX
+		; ! AYCZVN
+		; + PATTERN_INDEX
 
 		INY
 		TYA
@@ -418,19 +441,21 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 	ENDM
 
 
-
-
 ; ----------------------------------
 ; * MACROS - OTHER
 
 	MAC POSITION_BIRD_SPRITE
-		JSR SR_POSITION_BIRD_SPRITE
+		FINE_POS RESP0, BIRD_HPOS
+		LDA BIRD_HPOS
+		CLC
+		ADC BIRD_HEAD_OFFSET
+		FINE_POS_A RESP1
 	ENDM
 
 	MAC NEW_OBSTACLE
-		; {obstacle number -> 0 or 1}
-		; clobbers A and X
-		; alters OB_0 or OB_1
+		; > {obstacle number} [0,1]
+		; ! AXCZVN
+		; + OB_0, OB_1
 
 		IF {1} != 0 && {1} != 1
 			DASM_MACRO_ERROR "'NEW_OBSTACLE': {1} must be 0 or 1"
@@ -455,9 +480,8 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 
 
 	MAC DROWNING_PLAY_STATE
-		; no arguments
-		; clobbers A
-		; alters BIRD_VPOS, PATTERN_INDEX, PLAY_STATE
+		; ! ACZVN
+		; + BIRD_VPOS, PATTERN_INDEX, PLAY_STATE
 
 		; put game into drowning state
 		;		o make sure bird is at the lowest position
@@ -493,9 +517,9 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 	ENDM
 
 	MAC FOLIAGE_ANIMATION
-		; {animate forest background -> boolean}
-		; clobbers Y
-		; alters FOREST_MID_0, FOREST_MID_1, FOREST_MID_2, FOLIAGE_SEED
+		; > {animate forest background} [B]
+		; ! YCZVN
+		; + FOREST_MID_0, FOREST_MID_1, FOREST_MID_2, FOLIAGE_SEED
 
 		; cycle playfield data used to illustrate foliage, and by
 		; association, the playfield used for the water/swamp
@@ -1580,7 +1604,7 @@ display_score SUBROUTINE display_score
 
 	; get address of tens digit
 	LDA SCORE
-	JMP .do_score
+	JMP .tens_digits
 
 .prep_hiscore
 	LDA #HISCORE_COLOR
@@ -1600,7 +1624,8 @@ display_score SUBROUTINE display_score
 	; get address of tens digit
 	LDA HISCORE
 
-.do_score
+.tens_digits
+	; tail end of both prep_score and prep_hiscore branches
 	ROR
 	ROR
 	ROR
@@ -1709,19 +1734,6 @@ game_overscan SUBROUTINE game_overscan
 
 	JMP game_vsync
 
-
-; ----------------------------------
-; * SUBROUTINES
-
-SR_POSITION_BIRD_SPRITE SUBROUTINE SR_POSITION_BIRD_SPRITE
-		; no arguments
-		; clobbers A and X
-		FINE_POS RESP0, BIRD_HPOS
-		LDA BIRD_HPOS
-		CLC
-		ADC BIRD_HEAD_OFFSET
-		FINE_POS_A RESP1
-		RTS
 
 ; ----------------------------------
 ; * MACHINE INITIALISATION
