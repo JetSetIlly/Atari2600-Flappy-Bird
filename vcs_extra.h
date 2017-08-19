@@ -1,4 +1,6 @@
 
+; v1.0 - 19/08/2017
+
 	include vcs_mdl.txt
 	include dasm_extra.h
 
