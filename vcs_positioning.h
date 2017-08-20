@@ -4,15 +4,6 @@
 	include vcs_mdl.txt
 	include dasm_extra.h
 
-; summary of optional code
-; ========================
-;
-; RANGE_CHECKING -- enforces argument ranges
-;
-; TYPE_CHECKING -- enforces argument types (where possible)
-;
-; SIMPLE_MID_CORRECTION -- accounts for activision border when positioning from the middle
-
 
 ; -----------------------------------
 ; POSITION TABLES
@@ -137,13 +128,19 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		; + AXCZVN
 		; * sprite width is used to prevent sprite from wrapping around the screen
 
-		IFCONST RANGE_CHECKING
-			IF {3} < 0 || {3} > (159 - {4})
-				DASM_MACRO_ERROR "'FINE_POS_LEFT': value of {3} must be >= 0 and <=", (160 - {4})
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF {3} < 0 || {3} > (160 - {4})
+					DASM_MACRO_ERROR "'FINE_POS_LEFT': value of {3} must be >= 0 and <=", (160 - {4})
+				ENDIF
+
+				IF {4} != 0 && {4} != 1 && {4} != 2 && {4} != 4 && {4} != 8
+					DASM_MACRO_ERROR "'FINE_POS_LEFT': value of {4} must be 0, 1, 2, 4 or 8"
+				ENDIF
 			ENDIF
 		ENDIF
 
-		LDA #(01 + {3})
+		LDA #(02 + {3})
 		IF {2} != NULL
 			STA {2}
 		ENDIF
@@ -159,14 +156,20 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		; + AXCZVN
 		; * sprite width is used to prevent sprite from wrapping around the screen
 
-		IFCONST RANGE_CHECKING
-			IF {3} < 0 || {3} > (159 - {4})
-				DASM_MACRO_ERROR "'FINE_POS_RIGHT': value of {3} must be >= 0 and <=", (160 - {4})
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF {3} < 0 || {3} > (160 - {4})
+					DASM_MACRO_ERROR "'FINE_POS_RIGHT': value of {3} must be >= 0 and <=", (160 - {4})
+				ENDIF
+
+				IF {4} != 0 && {4} != 1 && {4} != 2 && {4} != 4 && {4} != 8
+					DASM_MACRO_ERROR "'FINE_POS_RIGHT': value of {4} must be 0, 1, 2, 4 or 8"
+				ENDIF
 			ENDIF
 		ENDIF
 
-		LDA #(160 - {3} - {4})
-		IF {2} != 0
+		LDA #(161 - {3} - {4})
+		IF {2} != NULL
 			STA {2}
 		ENDIF
 		FINE_POS_A {1}
@@ -178,10 +181,21 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		; > {loop} [bool]
 		; > {sprite width} [V] (0,1,2,4,8)
 		; + ACZVN
+		; * {sprite width} is unused if loop == FALSE
 
-		IFCONST TYPE_CHECKING
-			IF {3} != TRUE && {3} != FALSE
-				DASM_MACRO_ERROR "'FINE_MOVE_RIGHT': {3} must be TRUE or FALSE"
+		IFCONST MDL_TYPE_CHECKING
+			IF MDL_TYPE_CHECKING == TRUE
+				IF {3} != TRUE && {3} != FALSE
+					DASM_MACRO_ERROR "'FINE_MOVE_RIGHT': {3} must be TRUE or FALSE"
+				ENDIF
+			ENDIF
+		ENDIF
+
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF {4} != 0 && {4} != 1 && {4} != 2 && {4} != 4 && {4} != 8
+					DASM_MACRO_ERROR "'FINE_MOVE_RIGHT': value of {4} must be 0, 1, 2, 4 or 8"
+				ENDIF
 			ENDIF
 		ENDIF
 
@@ -208,12 +222,13 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		; > {position store} [AW]
 		; > {amount} [VA]
 		; > {loop} [bool]
-		; > {sprite width} [V] (0,1,2,4,8)
 		; + ACZVN
 
-		IFCONST TYPE_CHECKING
-			IF {3} != TRUE && {3} != FALSE
-				DASM_MACRO_ERROR "'FINE_MOVE_LEFT': {3} must be TRUE or FALSE"
+		IFCONST MDL_TYPE_CHECKING
+			IF MDL_TYPE_CHECKING == TRUE
+				IF {3} != TRUE && {3} != FALSE
+					DASM_MACRO_ERROR "'FINE_MOVE_LEFT': {3} must be TRUE or FALSE"
+				ENDIF
 			ENDIF
 		ENDIF
 
@@ -256,7 +271,7 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 	;
 	; note that very wide sprites will wrap around the screen when positioned at the limits of the screen
 	; the limit testing offered by the macros are good for single width sprites (ie. 8 pixels)
-	; to turn on the basic limit testing, define RANGE_CHECKING in your code
+	; to turn on the basic limit testing, define MDL_RANGE_CHECKING in your code
 	
 	MAC __SIMPLE_POS_X
 		;	> {reset address} [RW]
@@ -291,9 +306,11 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		; > {offset} [V]
 		; + ACZVN
 
-		IFCONST RANGE_CHECKING
-			IF {2} < 0 || {2} > 48
-				DASM_MACRO_ERROR "'SIMPLE_POS_LEFT': {2} must be >=0 AND <= 48"
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF {2} < 0 || {2} > 48
+					DASM_MACRO_ERROR "'SIMPLE_POS_LEFT': {2} must be >=0 AND <= 48"
+				ENDIF
 			ENDIF
 		ENDIF
 		__SIMPLE_POS {1}, 21 + {2}
@@ -303,18 +320,23 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		;	> {reset address} [RW]
 		; > {offset} [V]
 		; + ACZVN
+		; * define MDL_SIMPLE_MID_CORRECTION to correct for activision border
 
-		IFCONST RANGE_CHECKING
-			IF ({2} < -25) || ({2} > 26)
-				DASM_MACRO_ERROR "'SIMPLE_POS_MID': {2} must be >=-25 AND <= 26"
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF ({2} < -25) || ({2} > 26)
+					DASM_MACRO_ERROR "'SIMPLE_POS_MID': {2} must be >=-25 AND <= 26"
+				ENDIF
 			ENDIF
 		ENDIF
 
-		IFCONST SIMPLE_MID_CORRECTION
-			__SIMPLE_POS {1}, 44 + {2}
-		ELSE
-			__SIMPLE_POS {1}, 43 + {2}
+		.middle_pos SET 43
+		IFCONST MDL_SIMPLE_MID_CORRECTION
+			IF MDL_SIMPLE_MID_CORRECTION == TRUE
+				.middle_pos SET .middle_pos + 1
+			ENDIF
 		ENDIF
+		__SIMPLE_POS {1}, .middle_pos + {2}
 
 	ENDM
 
@@ -323,9 +345,11 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 		; > {offset} [V]
 		; + ACZVN
 
-		IFCONST RANGE_CHECKING
-			IF {2} < 0 || {2} > 50
-				DASM_MACRO_ERROR "'SIMPLE_POS_RIGHT': {2} must be >=0 AND <= 50"
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF {2} < 0 || {2} > 50
+					DASM_MACRO_ERROR "'SIMPLE_POS_RIGHT': {2} must be >=0 AND <= 50"
+				ENDIF
 			ENDIF
 		ENDIF
 		__SIMPLE_POS {1}, 69 - {2}

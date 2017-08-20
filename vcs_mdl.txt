@@ -112,4 +112,14 @@
 ; =======
 ;
 ; TODO
-
+;
+;
+; assembly checks
+; ===============
+;
+; define the following constants (as TRUE) to include some addition assembly time checks
+;
+; MDL_RANGE_CHECKING -- enforces argument ranges (including discreet ranges)
+;
+; MDL_TYPE_CHECKING -- enforces argument types (where possible)
+;

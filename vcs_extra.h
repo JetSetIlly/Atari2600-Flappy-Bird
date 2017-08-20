@@ -6,16 +6,6 @@
 
 SELECT_SWITCH = %00000010
 
-; optional code
-; =============
-;
-; define these constants to include the additional code
-;
-; RANGE_CHECKING -- enforces argument ranges
-;
-; TYPE_CHECKING -- enforces argument types (where possible)
-
-
 ; -----------------------------------
 ; DISPLAY CONSTANTS
 
@@ -31,9 +21,11 @@ OVERSCAN_SCANLINES = $1E	; 30
 		; + AXCZVN
 		; * BPL on trigger, BMI on no trigger
 
-		IFCONST RANGE_CHECKING
-			IF {1} != 0 || {1} > 1
-				DASM_MACRO_ERROR "'NEW_TRIGGER_CHECK': {1} must be 0 OR 1"
+		IFCONST MDL_RANGE_CHECKING
+			IF MDL_RANGE_CHECKING == TRUE
+				IF {1} != 0 || {1} > 1
+					DASM_MACRO_ERROR "'NEW_TRIGGER_CHECK': {1} must be 0 OR 1"
+				ENDIF
 			ENDIF
 		ENDIF
 

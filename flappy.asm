@@ -5,8 +5,10 @@
 	include vcs_extra.h
 	include vcs_positioning.h
 	include vcs_sfx.h
-	include macro_extra.h
 	include dasm_extra.h
+
+MDL_TYPE_CHECKING = TRUE
+MDL_RANGE_CHECKING = TRUE
 
 ; ----------------------------------
 ; * DATA - COLOURS
@@ -123,6 +125,7 @@ __STATE_SWCHB						ds 1
 __SFX_NEW_EVENT					ds 1
 __SFX_QUEUE_EVENT				ds 1
 __SFX_SUB_FRAMES				ds 1
+
 
 ; LOCAL SCOPE
 ; - can be resused between subroutines
@@ -673,7 +676,7 @@ game_restart SUBROUTINE game_restart
 
 	; position both obstacles inside the activision-border
 	FINE_POS_LEFT RESM0, OB_0_HPOS, 0, 4
-	FINE_POS_LEFT RESM1, OB_1_HPOS, 0, 4
+	FINE_POS_LEFT RESM1, OB_1_HPOS, 0, 8
 
 	; obstacle 0 starts moving immediately - obstacle 1 will begin moving later
 	LDA #1
