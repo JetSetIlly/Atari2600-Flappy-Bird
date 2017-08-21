@@ -330,14 +330,15 @@ FINE_POS_TABLE = __FINE_POS_TABLE - %11110001
 			ENDIF
 		ENDIF
 
-		.middle_pos SET 43
 		IFCONST MDL_SIMPLE_MID_CORRECTION
 			IF MDL_SIMPLE_MID_CORRECTION == TRUE
-				.middle_pos SET .middle_pos + 1
+				__SIMPLE_POS {1}, 44 + {2}
+			ELSE
+				__SIMPLE_POS {1}, 43 + {2}
 			ENDIF
+		ELSE
+			__SIMPLE_POS {1}, 43 + {2}
 		ENDIF
-		__SIMPLE_POS {1}, .middle_pos + {2}
-
 	ENDM
 
 	MAC SIMPLE_POS_RIGHT
