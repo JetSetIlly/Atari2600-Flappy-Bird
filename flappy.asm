@@ -86,8 +86,8 @@ PLAY_STATE_DROWN				= $FE
 ; be doing something useful and different on each line
 ; care should be taken to update this value, if we increase the number of WSYNCs
 SCANLINES_FOLIAGE			= $20
-SCANLINES_PLAYAREA			= DISPLAY_SCANLINES - SCANLINES_FOLIAGE - SCANLINES_SWAMP - SCANLINES_SCOREAREA
-SCANLINES_SWAMP				= $04
+SCANLINES_PLAYAREA		= DISPLAY_SCANLINES - SCANLINES_FOLIAGE - SCANLINES_SWAMP - SCANLINES_SCOREAREA
+SCANLINES_SWAMP				= $05
 SCANLINES_SCOREAREA		= DIGIT_LINES + $04
 SCANLINES_PER_FOLIAGE	= SCANLINES_FOLIAGE / 8
 
@@ -266,7 +266,7 @@ DIGIT_TABLE	.byte <DIGIT_0, <DIGIT_1, <DIGIT_2, <DIGIT_3, <DIGIT_4, <DIGIT_5, <D
 ; foliage - playfield data
 ; (see "foliage" subroutine for full and laboured explanation)
 FOLIAGE .byte %01100000, %10011010, %00111010, %10010000, %00110101, %11010001, %01010000, %01010110, %00110011, %10101000, %10100110, %00010110, %10010110, %10011010, %00111010, %00101011, %01101101, %01100110, %01011001, %11001101, %00101010, %01101100, %00100010, %10011010, %00111010, %00110011, %01101101, %01100110, %01011001, %10110101
-MAX_FOLIAGE_IDX	= 7
+MAX_FOLIAGE_SEED	= 7
 
 ; background forest - initial values
 FOREST_MID_0_INIT	.byte %00100000
@@ -529,7 +529,7 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 
 		LDY FOLIAGE_SEED
 		INY
-		CPY #MAX_FOLIAGE_IDX
+		CPY #MAX_FOLIAGE_SEED
 		BCC .foliage_updated
 		LDY #0
 
@@ -557,7 +557,7 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 			ORA FOREST_MID_0
 			STA FOREST_MID_0
 .forest_done
-	ENDIF
+		ENDIF
 
 .foliage_updated
 		STY FOLIAGE_SEED
@@ -569,6 +569,7 @@ SFX_SPLASH		HEX 00 04 08 04 00 09
 
 setup SUBROUTINE setup
 	CLEAN_START
+	JMP game_state_init
 
 ; ----------------------------------
 ; TITLE SCREEN
@@ -727,7 +728,6 @@ game_restart SUBROUTINE game_restart
 game_vsync SUBROUTINE game_vsync
 	VSYNC_KERNEL_BASIC
 
-
 game_vblank SUBROUTINE game_vblank
 	VBLANK_KERNEL_SETUP
 
@@ -839,8 +839,6 @@ game_vblank_ready SUBROUTINE game_vblank_ready
 	FINE_POS RESP0, #72
 	FINE_POS RESP1, #88
 	JMP game_vblank_end
-
-
 
 ; ----------------------------------
 ; GAME - VBLANK - DEATH - COLLISION
@@ -1235,21 +1233,21 @@ foliage SUBROUTINE foliage
 	; Y register contains the number of SCANLINES_FOLIAGE remaining
 	; X register contains the FOLIAGE_SEED value
 
-	; laboured description of FOLIAGE and MAX_FOLIAGE_IDX
+	; laboured description of FOLIAGE and MAX_FOLIAGE_SEED
 	; ===================================================
 	;
-	; we increase X (FOLIAGE_SEED)  after every time we access it (after every change to the playfield)
 	; we change the playfield every SCANLINES_PER_FOLIAGE scanlines 
+	; we increase X (FOLIAGE_SEED) after every time we access it (twice per line)
 	; there are SCANLINES_FOLIAGE scanlines in the foliage are of of the display
 	; therefore the final value of X at the end of the foliage subroutine is:
 	;
-	;			final X = FOLIAGE_SEED + (SCANLINES_FOLIAGE / SCANLINES_PER_FOLIAGE * 3) - 1
+	;			max_foliage_index = FOLIAGE_SEED + (SCANLINES_FOLIAGE / SCANLINES_PER_FOLIAGE * 2) - 1
 	;
 	; this would mean that the same foliage is drawn every frame. to introduce some randomness,
 	; FOLIAGE_SEED is increased by one every THREE_CYCLE frames (in the vblank kernel).
 	; the maximum vaulue of FOLIAGE_SEED at the start of the foliage subroutine is therefore:
 	;
-	;			MAX_FOLIAGE_IDX = sizeof(FOLIAGE memory space) - max_foliage_index
+	;			MAX_FOLIAGE_SEED = sizeof(FOLIAGE memory space) - max_foliage_index
 
 .next_foliage
 	CMP #$0									; 2
@@ -1261,26 +1259,27 @@ foliage SUBROUTINE foliage
 
 	LDA FOLIAGE,X						; 4
 	STA PF0									; 3
+	STA PF2									; 3
 	INX											; 2
 	LDA FOLIAGE,X						; 4
 
-; end of HBLANK
+	; end of hblank
 
 	STA PF1									; 3
 	INX											; 2
-	LDA FOLIAGE,X						; 4
-	STA PF2									; 2
 	INX											; 2
 
 	; start drawing obstacles if we're halfway through the foliage area
 	CPY #SCANLINES_FOLIAGE / 2		; 2
-	BCS .done_obstacle_check			; 2/3
+	BCS .new_foliage
+
+.set_trunk
 	LDA #$2												; 2
 	AND $00												; 2
 	STA ENAM0											; 3
 	STA ENAM1											; 3
-.done_obstacle_check
 
+.new_foliage
 	; re-initialise accumulator
 	LDA #SCANLINES_PER_FOLIAGE		; 2
 
@@ -1709,7 +1708,6 @@ game_overscan SUBROUTINE game_overscan
 	STY BRANCH_SEED
 .next_branch
 
-	
 	; special case for when we've /just/ entered PLAY_STATE_DROWN
 	LDA PLAY_STATE
 	CMP #PLAY_STATE_DROWN
