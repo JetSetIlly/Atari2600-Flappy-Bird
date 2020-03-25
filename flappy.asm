@@ -1,3 +1,25 @@
+; Copyright (c) 2017-2020, Stephen Illingworth
+; 
+; Redistribution and use in source and binary forms, with or without
+; modification, are permitted provided that the following conditions are met:
+; 
+; 1. Redistributions of source code must retain the above copyright notice, this
+;    list of conditions and the following disclaimer.
+; 2. Redistributions in binary form must reproduce the above copyright notice,
+;    this list of conditions and the following disclaimer in the documentation
+;    and/or other materials provided with the distribution.
+; 
+; THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+; ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+; WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+; DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+; ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+; (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+; ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+; (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+; SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
     processor 6502 
     include vcs.h
     include macro.h
@@ -9,8 +31,9 @@
 MDL_TYPE_CHECKING = TRUE
 MDL_RANGE_CHECKING = TRUE
 
-SHOW_READY_SCREEN = FALSE
+SHOW_READY_SCREEN = TRUE
 RANDOM_TRUNK = FALSE
+HARD_DIFFICULTY = FALSE
 
 ; ----------------------------------
 ; * DATA - COLOURS
@@ -67,17 +90,17 @@ SCORE_DIGITS_SIZE            = %00000101   ; single instance, double width
 BIRD_VPOS_INIT                = BIRD_HIGH / 4 * 3
 BIRD_HPOS_PLAY_POS            = $0C
 
-; easy difficulty
+    IF HARD_DIFFICULTY == TRUE
+WING_WIDTH                   = %00000101   ; single instance, double width
+HEAD_OFFSET_FROM_WINGS       = $07
+HEAD_WIDTH                   = %00000000   ; single instance, single width
+BIRD_HPOS_INIT                = $00
+    ELSE
 WING_WIDTH                   = %00000000    ; single instance, single width
 HEAD_OFFSET_FROM_WINGS       = $02
 HEAD_WIDTH                   = %00000000   ; single instance, single width
 BIRD_HPOS_INIT                = $05
-
-; tough difficulty
-;WING_WIDTH                   = %00000101   ; single instance, double width
-;HEAD_OFFSET_FROM_WINGS       = $07
-;HEAD_WIDTH                   = %00000000   ; single instance, single width
-;BIRD_HPOS_INIT                = $00
+    ENDIF
 
 ; ok sign width
 OK_SIGN_WIDTH                   = %00000101     ; single instance, double width
@@ -102,7 +125,7 @@ PLAY_STATE_DROWN            = $FE
 ; care should be taken to update this value, if we increase the number of WSYNCs
 SCANLINES_FOLIAGE         = $20
 SCANLINES_PLAYAREA        = DISPLAY_SCANLINES - SCANLINES_FOLIAGE - SCANLINES_SWAMP - SCANLINES_SCOREAREA
-SCANLINES_SWAMP           = $05
+SCANLINES_SWAMP           = $04
 SCANLINES_SCOREAREA       = DIGIT_LINES + $04
 SCANLINES_PER_FOLIAGE     = SCANLINES_FOLIAGE / 8
 
@@ -570,8 +593,8 @@ SFX_SPLASH       HEX 00 04 08 04 00 09
 ; SETUP
 
 setup SUBROUTINE setup
-    CLEAN_START
-    JMP game_state_init
+   CLEAN_START
+   JMP game_state_init
 
 ; ----------------------------------
 ; TITLE SCREEN
@@ -995,6 +1018,7 @@ game_vblank_main_triage SUBROUTINE game_vblank_main_triage
 
 .far_jmp_sprite
     JMP game_vblank_sprite
+	
 
 ; -------------
 ; GAME - VBLANK - MAIN - FOLIAGE
