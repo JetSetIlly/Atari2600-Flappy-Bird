@@ -23,3 +23,12 @@ in the project are an attempt to abstract away non-game code but it's probably
 more confusing than anything else. I would probably construct the code
 differently if I was to write it again.
 
+## Award Nominations
+
+On Jan 16th 2021 I was fortunate enough to be nominated for an award in the [3rd Annual Atari Homebrew Awards (2020)](https://atariage.com/forums/topic/315616-3rd-annual-atari-homebrew-awards-2020-voting-information-discussion/) organised by [ZeroPage Homebrew](https://www.twitch.tv/zeropagehomebrew/)
+
+The category the game has been nomintated in (<=4k port) is very strong and I
+am extremely pleased to see the game in such esteemed company. Results are
+announced on the Feb 6th 2021.
+
+<img src=".assets/669105648_3rdAnnualAtariHomebrewAwards(2020)-NominatedLaurels-Atari2600Best4KHomebrew(Port).png" alt="laurels for homebrew award nomination">
