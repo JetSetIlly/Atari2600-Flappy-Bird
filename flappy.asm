@@ -1,4 +1,4 @@
-; Copyright (c) 2017-2020, Stephen Illingworth
+; Copyright (c) 2017-2021, Stephen Illingworth
 ; 
 ; Redistribution and use in source and binary forms, with or without
 ; modification, are permitted provided that the following conditions are met:
@@ -455,7 +455,7 @@ SFX_SPLASH       HEX 00 04 08 04 00 09
         INY
         TYA
         LDX #$0         ; X = 0 -> length byte of FLIGHT_PATTERN
-        CMP (FLIGHT_PATTERN),X
+        CMP (FLIGHT_PATTERN,X)
         BCC .store_index
 
         IF {1} == TRUE
@@ -669,6 +669,8 @@ game_state_init SUBROUTINE game_state_init
     LDA #(OBSTACLE_WIDTH | HEAD_WIDTH)
     STA NUSIZ1
 
+	JSR game_restart
+	JMP game_overscan
 
 ; ----------------------------------
 ; GAME - RESTART
@@ -696,9 +698,6 @@ game_restart SUBROUTINE game_restart
 
     ; make sure movement registers are zero
     STA HMCLR
-
-    ; use the very first frame of the game sequence to position elements
-    VERTICAL_SYNC
 
     ; position both obstacles inside the activision-border
     FINE_POS_LEFT RESM0, OB_0_HPOS, 0, 4
@@ -745,7 +744,7 @@ game_restart SUBROUTINE game_restart
     STA SPLASH_COLOR
 
     SFX_ENGINE_INIT
-
+	RTS
 
 ; ----------------------------------
 ; GAME - VSYNC / VBLANK
@@ -945,7 +944,8 @@ game_vblank_death_drown SUBROUTINE game_vblank_death_drown
     JMP .prepare_display
 
 .drowning_end
-    JMP game_restart
+	JSR game_restart
+	JMP game_vblank_ready
 
 .prepare_display
     POSITION_BIRD_SPRITE
