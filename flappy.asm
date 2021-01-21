@@ -28,12 +28,26 @@
     include vcs_sfx.h
     include dasm_extra.h
 
+PLUSROM = TRUE
+
 MDL_TYPE_CHECKING = TRUE
 MDL_RANGE_CHECKING = TRUE
 
 SHOW_READY_SCREEN = TRUE
 RANDOM_TRUNK = FALSE
 HARD_DIFFICULTY = FALSE
+
+; ----------------------------------
+; PlusROM Hotspots
+   IF PLUSROM
+WriteToBuffer     = $1ff0
+WriteSendBuffer   = $1ff1
+ReceiveBuffer     = $1ff2
+ReceiveBufferSize = $1ff3
+HIGHSCORE_ID      = 34
+   ENDIF
+
+
 
 ; ----------------------------------
 ; * DATA - COLOURS
@@ -455,7 +469,7 @@ SFX_SPLASH       HEX 00 04 08 04 00 09
         INY
         TYA
         LDX #$0         ; X = 0 -> length byte of FLIGHT_PATTERN
-        CMP (FLIGHT_PATTERN),X
+        CMP FLIGHT_PATTERN,X
         BCC .store_index
 
         IF {1} == TRUE
@@ -528,6 +542,9 @@ SFX_SPLASH       HEX 00 04 08 04 00 09
         ; --
         LDA #PLAY_STATE_DROWN
         STA PLAY_STATE
+      IF PLUSROM
+        JSR SendPlusROMScore
+      ENDIF
         ; --
         DEC BIRD_HEAD_OFFSET
         DEC BIRD_HEAD_OFFSET
@@ -1770,13 +1787,31 @@ game_overscan SUBROUTINE game_overscan
     JMP game_vsync
 
 
+  IF PLUSROM
+PlusROM_API:
+    .byte "a", 0, "h.firmaplus.de", 0
+
+SendPlusROMScore:
+   lda SCORE
+   sta WriteToBuffer
+   lda #HIGHSCORE_ID          	    ; game id in Highscore DB
+   sta WriteSendBuffer              ; send request to backend..
+   rts
+  ENDIF
+
+
+
 ; ----------------------------------
 ; * MACHINE INITIALISATION
 
 initialisation SUBROUTINE initialisation
 
     ORG $FFFA
+  IF PLUSROM
+    .word ((PlusROM_API & $0FFF) + $1000)
+  ELSE
     .word setup        ; NMI
+  ENDIF
     .word setup        ; RESET
     .word setup        ; IRQ
 
