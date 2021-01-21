@@ -1,4 +1,4 @@
-; Copyright (c) 2017-2020, Stephen Illingworth
+; Copyright (c) 2017-2021, Stephen Illingworth
 ; 
 ; Redistribution and use in source and binary forms, with or without
 ; modification, are permitted provided that the following conditions are met:
@@ -23,6 +23,7 @@
 ; v1.0 - 19/08/2017
 ; v1.1 - 08/02/2018   - __WAIT_SCANLINE_TIMER now calls WSYNC before setting timer
 ;                     - renamed labels so intention is clearer
+; v1.2 - 21/01/2021   - corrected __WAIT_SCANLINE_TIMER again 
 
 	include vcs_mdl.txt
 	include dasm_extra.h
@@ -131,11 +132,9 @@ OVERSCAN_SCANLINES = $1E	; 30
 .KERNEL_WAIT_LOOP = 7
 .TIMER_VAL = (.CYCLES_PER_SCANLINE * .SCANLINES - .KERNEL_TIMER_SET_IN_CYCLES - .KERNEL_WAIT_LOOP) / 64
 
-		; the calculations above rely on the timer being set immediately after a WSYNC
-		STA WSYNC
-
 		LDA	#.TIMER_VAL    ; 2
 		STA TIM64T                ; 4
+		STA WSYNC
 	ENDM
 
 ; -----------------------------------
@@ -220,7 +219,7 @@ OVERSCAN_SCANLINES = $1E	; 30
 		LDA	#$2
 		STA VBLANK
 
-		__WAIT_SCANLINE_TIMER #OVERSCAN_SCANLINES
+		__WAIT_SCANLINE_TIMER #OVERSCAN_SCANLINES+1
 	ENDM
 
 	MAC OVERSCAN_KERNEL_END
