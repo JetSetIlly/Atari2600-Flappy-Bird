@@ -1239,6 +1239,11 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 game_vblank_end SUBROUTINE game_vblank_end
     ; setup display kernel (for foliage area)
 
+    ; added for exit function of Multicarts like PlusCart, UnoCart or Harmony.
+    ; reading the missing SWCHA or SWCHB (whatever is not read by the game),
+    ; once per frame is enough so the Multicart can peek the missing value(s).
+    LDA SWCHA
+
     ; do horizontal movement
     ; note that movement registers need to be reset every frame
     STA WSYNC
