@@ -1821,8 +1821,14 @@ SendPlusROMScore:
    lda #HIGHSCORE_ID          	    ; game id in Highscore DB
    sta WriteSendBuffer              ; send request to backend..
    rts
-  ENDIF
 
+    ; keep PlusROM hotspots clear!
+    ORG $FFF0
+    .byte $FF       ; WriteToBuffer
+    .byte $FF       ; WriteSendBuffer
+    .byte $FF       ; ReceiveBuffer
+    .byte $FF       ; ReceiveBufferSize
+  ENDIF
 
 
 ; ----------------------------------
