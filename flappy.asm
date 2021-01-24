@@ -28,6 +28,9 @@
     include vcs_sfx.h
     include dasm_extra.h
 
+PLUSROM = TRUE
+PAL60   = FALSE
+
 MDL_TYPE_CHECKING = TRUE
 MDL_RANGE_CHECKING = TRUE
 
@@ -36,9 +39,39 @@ RANDOM_TRUNK = FALSE
 HARD_DIFFICULTY = FALSE
 
 ; ----------------------------------
+; PlusROM Hotspots
+   IF PLUSROM
+WriteToBuffer     = $1ff0
+WriteSendBuffer   = $1ff1
+ReceiveBuffer     = $1ff2
+ReceiveBufferSize = $1ff3
+HIGHSCORE_ID      = 34
+   ENDIF
+
+
+
+; ----------------------------------
 ; * DATA - COLOURS
 
 ; colours
+    IF PAL60
+BIRD_COLOR                    = $06
+
+FOLIAGE_BACKGROUND            = $32
+FOLIAGE_COLOR                 = $30
+
+FOREST_BACKGROUND             = $32
+FOREST_COLOR                  = $20
+
+SWAMP_BACKGROUND              = $72
+SWAMP_COLOR                   = $70
+
+SCORING_BACKGROUND            = $00
+SCORE_COLOR                   = $0E
+HISCORE_COLOR                 = $26
+
+OKAY_COLOR                    = $2E
+    ELSE
 BIRD_COLOR                    = $06
 
 FOLIAGE_BACKGROUND            = $D2
@@ -55,7 +88,7 @@ SCORE_COLOR                   = $0E
 HISCORE_COLOR                 = $F6
 
 OKAY_COLOR                    = $2E
-
+    ENDIF
 ; ----------------------------------
 ; * DATA - CONSTANTS
 
@@ -528,6 +561,9 @@ SFX_SPLASH       HEX 00 04 08 04 00 09
         ; --
         LDA #PLAY_STATE_DROWN
         STA PLAY_STATE
+      IF PLUSROM
+        JSR SendPlusROMScore
+      ENDIF
         ; --
         DEC BIRD_HEAD_OFFSET
         DEC BIRD_HEAD_OFFSET
@@ -1203,6 +1239,11 @@ game_vblank_position_sprites SUBROUTINE game_vblank_position_sprites
 game_vblank_end SUBROUTINE game_vblank_end
     ; setup display kernel (for foliage area)
 
+    ; added for exit function of Multicarts like PlusCart, UnoCart or Harmony.
+    ; reading the missing SWCHA or SWCHB (whatever is not read by the game),
+    ; once per frame is enough so the Multicart can peek the missing value(s).
+    LDA SWCHA
+
     ; do horizontal movement
     ; note that movement registers need to be reset every frame
     STA WSYNC
@@ -1770,13 +1811,37 @@ game_overscan SUBROUTINE game_overscan
     JMP game_vsync
 
 
+  IF PLUSROM
+PlusROM_API:
+    .byte "a", 0, "h.firmaplus.de", 0
+
+SendPlusROMScore:
+   lda SCORE
+   sta WriteToBuffer
+   lda #HIGHSCORE_ID          	    ; game id in Highscore DB
+   sta WriteSendBuffer              ; send request to backend..
+   rts
+
+    ; keep PlusROM hotspots clear!
+    ORG $FFF0
+    .byte $FF       ; WriteToBuffer
+    .byte $FF       ; WriteSendBuffer
+    .byte $FF       ; ReceiveBuffer
+    .byte $FF       ; ReceiveBufferSize
+  ENDIF
+
+
 ; ----------------------------------
 ; * MACHINE INITIALISATION
 
 initialisation SUBROUTINE initialisation
 
     ORG $FFFA
+  IF PLUSROM
+    .word ((PlusROM_API & $0FFF) + $1000)
+  ELSE
     .word setup        ; NMI
+  ENDIF
     .word setup        ; RESET
     .word setup        ; IRQ
 
