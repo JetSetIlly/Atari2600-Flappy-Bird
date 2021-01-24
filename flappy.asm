@@ -28,8 +28,8 @@
     include vcs_sfx.h
     include dasm_extra.h
 
-PLUSROM = TRUE
-PAL60   = FALSE
+PLUSROM = FALSE
+PAL60   = TRUE
 
 MDL_TYPE_CHECKING = TRUE
 MDL_RANGE_CHECKING = TRUE
@@ -47,8 +47,6 @@ ReceiveBuffer     = $1ff2
 ReceiveBufferSize = $1ff3
 HIGHSCORE_ID      = 34
    ENDIF
-
-
 
 ; ----------------------------------
 ; * DATA - COLOURS
@@ -89,6 +87,7 @@ HISCORE_COLOR                 = $F6
 
 OKAY_COLOR                    = $2E
     ENDIF
+
 ; ----------------------------------
 ; * DATA - CONSTANTS
 
