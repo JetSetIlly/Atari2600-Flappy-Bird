@@ -11,25 +11,25 @@
 ;
 ; arguments are declared ordinally. ie. the first type declaration refers to argument {1}
 ; 
-; . each macro argument is named between braces. eg. {reset address}
-;		. note that arguments cannot be referenced by name, only by number. eg {1}
-; . the argument type is specified in square brackets. eg. [R]
-;	. allowed values (of the argument type) are defined in parenthesis. eg (1..159)
+;  . each macro argument is named between braces. eg. {reset address}
+;    . note that arguments cannot be referenced by name, only by number. eg {1}
+;  . the argument type is specified in square brackets. eg. [R]
+;  . allowed values (of the argument type) are defined in parenthesis. eg (1..159)
 ;
 ; the argument types are as follows (more in the following section)
-;	. R -> VCS register
-;	. RR -> TIA read register
-;	. RW -> TIA write register
-; . V -> immediate value
-; . A -> absolute address
-; . AW -> absolute address (which is in RAM)
-;	. VA -> immediate value OR an absolute address
-; . Bool -> Boolean value 
+;  . R -> VCS register
+;  . RR -> TIA read register
+;  . RW -> TIA write register
+;  . V -> immediate value
+;  . A -> absolute address
+;  . AW -> absolute address (which is in RAM)
+;  . VA -> immediate value OR an absolute address
+;  . Bool -> Boolean value 
 ;
 ; allowed values are defined as follows
-;	. as a single value (of the type)
-; . as a list of discreet values, separated by commas. eg (1,2,3,4)
-; . as a range - two values separated by two periods. eg (1..159)
+;  . as a single value (of the type)
+;  . as a list of discreet values, separated by commas. eg (1,2,3,4)
+;  . as a range - two values separated by two periods. eg (1..159)
 ;
 ;
 ; inputs (presets)
@@ -38,35 +38,35 @@
 ; preset requirements are also distinguised with a leading ">"
 ;
 ; . CPU register presets are descriptive
-;		. A = description
-;		. X = description
-;		. Y = description
+;    . A = description
+;    . X = description
+;    . Y = description
 ;
 ;
 ; input types
 ; ===========
 ;
-;	R -> VCS register
-;	RR -> TIA read register
-;	RW -> TIA write register
-; RT -> RIOT register
-;				. values SHOULD be limited to addresses defined in vcs.h
-;				. further limits will be defined by the name of the argument or in free-form comments
+;  R -> VCS register
+;  RR -> TIA read register
+;  RW -> TIA write register
+;  RT -> RIOT register
+;        . values SHOULD be limited to addresses defined in vcs.h
+;        . further limits will be defined by the name of the argument or in free-form comments
 ;
-; V -> immediate value
-;				. values can be DASM expressions
-;				. values can include a leading # or not
+;  V -> immediate value
+;        . values can be DASM expressions
+;        . values can include a leading # or not
 ;
-; A -> absolute address
-;				. values SHOULD be in the cartridge's memory space or console's RAM
-;				. ie not in the console's ROM space
+;  A -> absolute address
+;        . values SHOULD be in the cartridge's memory space or console's RAM
+;        . ie not in the console's ROM space
 
-; AW -> absolute address
-;				. values MUST be in the console's RAM space
+;  AW -> absolute address
+;        . values MUST be in the console's RAM space
 ;
-;	VA -> immediate value OR an absolute address
-;				. immediate values MUST include the leading #
-;				. rules for A type apply for values that don't include the leading #
+;  VA -> immediate value OR an absolute address
+;        . immediate values MUST include the leading #
+;        . rules for A type apply for values that don't include the leading #
 ;
 ;
 ; other requirements
@@ -81,13 +81,13 @@
 ; side effects are listed on a single line, distinguished by a leading +
 ;
 ; . affected registers/flags denoted by:
-;		. A = Accumulator
-;		. X = X register
-;		. Y = Y register
-;		. C = Carry flag
-;		. Z = Zero flag
-;		. V = Overflow flag
-;		. N = Negative flag
+;    . A = Accumulator
+;    . X = X register
+;    . Y = Y register
+;    . C = Carry flag
+;    . Z = Zero flag
+;    . V = Overflow flag
+;    . N = Negative flag
 ;
 ;
 ; outputs
@@ -97,9 +97,9 @@
 ; 
 ; . valid output locations are CPU registers (A, X or Y) or AW arguments (by name)
 ; . output defintions are descriptive. for example, for a division routine, an output
-;		might be: A = remainder
+;    might be: A = remainder
 ; . S = <value> indicates the value that the status flags reflect
-;	. there can be side effects without an output. outputs are side effects that are useful
+; . there can be side effects without an output. outputs are side effects that are useful
 ;
 ;
 ; other notes
