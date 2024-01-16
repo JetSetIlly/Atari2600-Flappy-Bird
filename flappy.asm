@@ -29,7 +29,7 @@
     include dasm_extra.h
 
 PLUSROM = FALSE
-PAL60   = FALSE
+;PAL60   = FALSE
 
 MDL_TYPE_CHECKING = TRUE
 MDL_RANGE_CHECKING = TRUE
@@ -52,39 +52,29 @@ HIGHSCORE_ID      = 34
 ; * DATA - COLOURS
 
 ; colours
-    IF PAL60
+    IF SYSTEM = PAL
 BIRD_COLOR                    = $06
-
 FOLIAGE_BACKGROUND            = $32
 FOLIAGE_COLOR                 = $30
-
 FOREST_BACKGROUND             = $32
 FOREST_COLOR                  = $20
-
 SWAMP_BACKGROUND              = $72
 SWAMP_COLOR                   = $70
-
 SCORING_BACKGROUND            = $00
 SCORE_COLOR                   = $0E
 HISCORE_COLOR                 = $26
-
 OKAY_COLOR                    = $2E
     ELSE
 BIRD_COLOR                    = $06
-
 FOLIAGE_BACKGROUND            = $D2
 FOLIAGE_COLOR                 = $D0
-
 FOREST_BACKGROUND             = $D2
 FOREST_COLOR                  = $E0
-
 SWAMP_BACKGROUND              = $B2
 SWAMP_COLOR                   = $B0
-
 SCORING_BACKGROUND            = $00
 SCORE_COLOR                   = $0E
 HISCORE_COLOR                 = $F6
-
 OKAY_COLOR                    = $2E
     ENDIF
 
